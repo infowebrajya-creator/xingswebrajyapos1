@@ -20,10 +20,14 @@ import {
   Zap,
   Info,
   Layers,
-  FileCode
+  FileCode,
+  Ticket,
+  Receipt,
+  UtensilsCrossed
 } from "lucide-react";
 import { PrintQueueManager, PrintJob, PrintHistoryLog } from "../lib/printQueueManager";
 import { JSPrintManagerService, JSPMStatusInfo } from "../lib/jsprintmanagerService";
+import { PhysicalThermalPrinter } from "../lib/printerService";
 import { 
   PrinterManager, 
   DiscoveredPrinter, 
@@ -34,6 +38,7 @@ import {
 export default function PrintersConfigTab() {
   const [config, setConfig] = useState<TenantPrinterConfig>(() => PrinterManager.getConfiguredPrinter());
   const [jspmStatus, setJspmStatus] = useState<JSPMStatusInfo>(() => JSPrintManagerService.getStatus());
+  const [simulatorPaperWidth, setSimulatorPaperWidth] = useState<"58mm" | "80mm">("80mm");
   
   const [discoveredPrinters, setDiscoveredPrinters] = useState<DiscoveredPrinter[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -734,6 +739,193 @@ export default function PrintersConfigTab() {
               )}
             </div>
 
+          </div>
+
+          {/* 3-WINDOW REAL THERMAL TICKET SIMULATOR (TOKEN, BILL, KOT) */}
+          <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-3">
+              <div>
+                <h3 className="text-2xs font-mono font-bold text-stone-900 uppercase tracking-widest flex items-center gap-2 text-xs">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>REAL-TIME THERMAL TICKET SIMULATOR (3 WINDOWS)</span>
+                </h3>
+                <p className="text-[11px] text-stone-500 font-sans mt-0.5">
+                  Live paper layout preview for Token Slip, Tax Invoice Bill, and Kitchen KOT.
+                </p>
+              </div>
+
+              {/* Paper Roll Width Toggle */}
+              <div className="flex items-center gap-2 bg-stone-100 p-1 rounded-xl border border-stone-200 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSimulatorPaperWidth("80mm")}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-mono font-bold uppercase transition-all cursor-pointer ${
+                    simulatorPaperWidth === "80mm"
+                      ? "bg-amber-400 text-stone-950 shadow-2xs border border-amber-500/40"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  80mm (3" Roll)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSimulatorPaperWidth("58mm")}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-mono font-bold uppercase transition-all cursor-pointer ${
+                    simulatorPaperWidth === "58mm"
+                      ? "bg-amber-400 text-stone-950 shadow-2xs border border-amber-500/40"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  58mm (2" Roll)
+                </button>
+              </div>
+            </div>
+
+            {/* 3 PREVIEW WINDOWS GRID */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              
+              {/* WINDOW 1: CUSTOMER TOKEN SLIP */}
+              <div className="bg-[#FEFCE8] border border-amber-300 rounded-xl p-3.5 font-mono text-[11px] text-stone-900 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-2 right-2 bg-amber-200 text-amber-950 text-[9px] font-bold px-2 py-0.5 rounded border border-amber-400/60 uppercase">
+                  Window 1: Token
+                </div>
+                
+                <div className="space-y-2 text-center pt-3">
+                  <div className="border-b border-dashed border-stone-400 pb-1 font-bold text-xs uppercase tracking-wider">
+                    {tenantContext.organizationName || "THE XINGS KITCHEN POS"}
+                  </div>
+                  
+                  <div className="py-2">
+                    <div className="text-[10px] font-bold tracking-widest text-stone-600">T O K E N   N O .</div>
+                    <div className="inline-block border-2 border-stone-900 px-4 py-1 text-2xl font-black text-stone-950 my-1 bg-white">
+                      42
+                    </div>
+                  </div>
+
+                  <div className="text-left text-[10px] space-y-0.5 border-t border-dashed border-stone-300 pt-2">
+                    <div>Order Type: DINE-IN / TABLE #T03</div>
+                    <div>Date: {new Date().toLocaleDateString("en-IN")} 10:15 AM</div>
+                  </div>
+
+                  <div className="border-t border-b border-dashed border-stone-400 py-1.5 font-bold text-[10px] text-stone-950 mt-2">
+                    Please hold this slip for pickup!
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => PhysicalThermalPrinter.printCustomerTokenSlip({
+                    tokenNumber: "42",
+                    orderType: "dine-in",
+                    tableNumber: "03",
+                    createdAt: new Date().toISOString(),
+                    restaurantName: tenantContext.organizationName
+                  })}
+                  className="mt-4 w-full py-2 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-[10px] uppercase rounded-lg border border-amber-500/40 cursor-pointer shadow-2xs flex items-center justify-center gap-1.5"
+                >
+                  <Ticket className="w-3.5 h-3.5" />
+                  <span>Test Print Token</span>
+                </button>
+              </div>
+
+              {/* WINDOW 2: TAX INVOICE BILL */}
+              <div className="bg-[#FEFCE8] border border-stone-300 rounded-xl p-3.5 font-mono text-[11px] text-stone-900 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-2 right-2 bg-stone-200 text-stone-900 text-[9px] font-bold px-2 py-0.5 rounded border border-stone-400/60 uppercase">
+                  Window 2: Bill
+                </div>
+
+                <div className="space-y-1.5 text-left pt-3 text-[10px]">
+                  <div className="text-center font-bold text-xs border-b border-dashed border-stone-400 pb-1 uppercase">
+                    {tenantContext.organizationName || "THE XINGS KITCHEN POS"}
+                    <span className="block text-[9px] text-stone-600 font-normal">TAX INVOICE</span>
+                  </div>
+
+                  <div className="flex justify-between font-bold">
+                    <span>Token #: 42</span>
+                    <span>Inv #: INV-8842</span>
+                  </div>
+                  <div>Table: #03 | Staff: SATENDRA</div>
+                  <div className="border-t border-b border-dashed border-stone-400 py-1 font-bold">
+                    <div className="flex justify-between">
+                      <span>QTY  ITEM</span>
+                      <span>TOTAL</span>
+                    </div>
+                  </div>
+                  <div className="space-y-0.5 text-stone-950 font-bold">
+                    <div className="flex justify-between">
+                      <span>1 x Chilli Potato</span>
+                      <span>₹99.00</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>1 x Diet Coke</span>
+                      <span>₹70.00</span>
+                    </div>
+                  </div>
+                  <div className="border-t border-dashed border-stone-400 pt-1 flex justify-between font-black text-xs text-stone-950">
+                    <span>GRAND TOTAL:</span>
+                    <span>₹177.45</span>
+                  </div>
+                  <div className="text-[9px] text-stone-600 italic text-center pt-1">
+                    GST Included • Paid via UPI
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleTestPrint("receipt")}
+                  className="mt-4 w-full py-2 bg-stone-900 hover:bg-stone-800 text-white font-bold text-[10px] uppercase rounded-lg cursor-pointer shadow-2xs flex items-center justify-center gap-1.5"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>Test Print Bill</span>
+                </button>
+              </div>
+
+              {/* WINDOW 3: KITCHEN KOT */}
+              <div className="bg-[#FEFCE8] border border-purple-300 rounded-xl p-3.5 font-mono text-[11px] text-stone-900 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-2 right-2 bg-purple-200 text-purple-950 text-[9px] font-bold px-2 py-0.5 rounded border border-purple-400/60 uppercase">
+                  Window 3: KOT
+                </div>
+
+                <div className="space-y-1.5 text-left pt-3 text-[10px]">
+                  <div className="text-center font-bold text-xs border-b border-dashed border-purple-400 pb-1 uppercase text-purple-950">
+                    KITCHEN ORDER TICKET
+                    <span className="block text-sm font-black text-purple-900">TOKEN #42</span>
+                  </div>
+
+                  <div className="flex justify-between font-bold">
+                    <span>Table #: T03</span>
+                    <span>KOT #: 9963</span>
+                  </div>
+                  <div>Time: 10:15 AM | Type: DINE-IN</div>
+                  <div className="border-t border-b border-dashed border-stone-400 py-1 font-bold">
+                    <div className="flex justify-between">
+                      <span>QTY  ITEM NAME</span>
+                      <span>PREP NOTES</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1 font-bold text-stone-950">
+                    <div>
+                      <span>1 x Chilli Potato</span>
+                      <span className="block text-[9px] text-purple-800 italic pl-3">Note: Extra Crisp</span>
+                    </div>
+                    <div>
+                      <span>1 x Diet Coke</span>
+                      <span className="block text-[9px] text-purple-800 italic pl-3">Note: Chilled</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleTestPrint("kot")}
+                  className="mt-4 w-full py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-[10px] uppercase rounded-lg cursor-pointer shadow-2xs flex items-center justify-center gap-1.5"
+                >
+                  <UtensilsCrossed className="w-3.5 h-3.5" />
+                  <span>Test Print KOT</span>
+                </button>
+              </div>
+
+            </div>
           </div>
 
         </div>
