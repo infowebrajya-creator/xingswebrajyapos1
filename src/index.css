@@ -1,0 +1,130 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, Cambria, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* WebRajya POS Color Theme Extensions */
+  --color-brand-amber: #fbbf24;
+  --color-brand-gold: #f59e0b;
+  --color-surface-cream: #faf8f5;
+  --color-surface-zinc: #18181b;
+
+  --color-status-veg: #22c55e;
+  --color-status-nonveg: #ef4444;
+  --color-status-rush: #ea580c;
+  --color-status-special: #a855f7;
+
+  --color-receipt-preview: #fefce8;
+}
+
+:root {
+  /* 1. Brand & Primary Accent Color */
+  --brand-accent: #fbbf24;
+  --brand-accent-light: #fef3c7;
+  
+  /* 2. Base Surfaces & Backgrounds */
+  --bg-light-mode: #faf8f5;
+  --bg-dark-surface: #18181b;
+  --bg-slate-900: #0f172a;
+  --bg-slate-950: #020617;
+
+  /* 3. Functional & Status Colors */
+  --color-veg-emerald: #22c55e;
+  --color-nonveg-red: #ef4444;
+  --color-rush-orange: #ea580c;
+  --color-chef-special: #a855f7;
+
+  /* 4. Thermal Receipt & Simulation Colors */
+  --thermal-bg-white: #ffffff;
+  --thermal-preview-tint: #fefce8;
+  --thermal-ink-black: #000000;
+}
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #faf8f5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e4e2db;
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #fbbf24;
+}
+
+/* Scrollbar Utility to hide bars completely */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0 !important;
+  height: 0 !important;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+  -webkit-overflow-scrolling: touch; /* smooth touch scrolling on iOS and macOS WebKit */
+}
+
+/* Receipt simulation utilities */
+.receipt-preview-bg {
+  background-color: var(--thermal-preview-tint);
+  color: var(--thermal-ink-black);
+}
+
+/* Premium Printing Styles for Bills & Thermal Receipts */
+@media print {
+  /* Ensure backgrounds and exact colors are printed */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide everything on the page by default to prevent leaking page content */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Selectively show ONLY the elements marked as print-area and their children */
+  .print-area, .print-area * {
+    visibility: visible !important;
+  }
+
+  /* Format and position the print-area to take up the entire page cleanly */
+  .print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 15px !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border-radius: 0 !important;
+  }
+
+  /* Explicitly hide buttons, overlays, and other controls labeled as no-print */
+  .no-print, .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}
