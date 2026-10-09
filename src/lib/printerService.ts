@@ -1943,6 +1943,46 @@ export class PhysicalThermalPrinter {
   }
 
   /**
+   * Print 1. Customer Token Slip -> AutoCut -> 2. Tax Invoice Bill -> AutoCut -> 3. Kitchen KOT -> AutoCut
+   */
+  public static async printAllThreeSequentially(
+    order: any,
+    settings: any,
+    width: "58mm" | "80mm" = "80mm",
+    mode: "usb" | "serial" | "fallback" | "native" = "native",
+    cashierName: string = "Cashier"
+  ): Promise<{ tokenSuccess: boolean; billSuccess: boolean; kotSuccess: boolean }> {
+    console.log("=== START EXPRESS 3-IN-1 SEQUENTIAL PRINT PIPELINE ===");
+    const pSettings = getWRPrinterSettings();
+    const tokenNum = order.tokenNumber || "1";
+
+    // Step 1: Customer Token Slip
+    console.log("Step 1: Printing Customer Token Slip (TOKEN #" + tokenNum + ")...");
+    this.printCustomerTokenSlip({
+      tokenNumber: tokenNum,
+      orderType: order.orderType,
+      tableNumber: order.tableNumber,
+      createdAt: order.createdAt,
+      restaurantName: settings?.name || "THE XINGS KITCHEN POS"
+    });
+
+    // Step 2: Tax Invoice Bill
+    console.log("Step 2: Printing Tax Invoice Bill...");
+    const billSuccess = await this.printBill(order, settings, width, mode);
+
+    // Step 3: Kitchen Order Ticket (KOT)
+    console.log("Step 3: Printing Kitchen Order Ticket (KOT)...");
+    const kotData = this.buildKOTDataFromOrder(order);
+    const kotSuccess = await this.printKOT(kotData, width, mode, cashierName);
+
+    return {
+      tokenSuccess: true,
+      billSuccess,
+      kotSuccess
+    };
+  }
+
+  /**
    * Print KOT and Bill sequentially with separate cuts and 1000ms delay
    */
   public static async printKOTAndBillSequentially(

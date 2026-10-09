@@ -1169,6 +1169,46 @@ export default function PosBillingPortal({
     }
   };
 
+  const handlePrintAllThree = async () => {
+    if (cart.length === 0 && !activeOrderForSelectedTable) {
+      alert("Cart is empty.");
+      return;
+    }
+
+    const targetOrder = activeOrderForSelectedTable || {
+      id: "ORD-" + Date.now().toString().slice(-6),
+      orderType,
+      tableNumber: selectedTable,
+      tokenNumber: currentOrderToken,
+      customerName: customerName || (orderType === "dine-in" ? "Walk-in Guest" : "Takeaway Guest"),
+      phoneNumber: customerPhone || "",
+      items: cart.map(i => ({
+        menuItemId: i.id,
+        name: i.name,
+        price: i.price,
+        quantity: i.quantity,
+        customization: i.customization
+      })),
+      subtotal: cartTotals.subtotal - cartTotals.itemDiscounts,
+      gst: cartTotals.gst,
+      grandTotal: cartTotals.grandTotal,
+      createdAt: new Date().toISOString()
+    };
+
+    setPrintNotice({
+      type: "success",
+      message: `Printing Token #${targetOrder.tokenNumber || currentOrderToken}, Bill & KOT sequentially...`
+    });
+
+    await PhysicalThermalPrinter.printAllThreeSequentially(
+      targetOrder,
+      settings,
+      "80mm",
+      "native",
+      selectedStaffName || "SATENDRA"
+    );
+  };
+
   // Retry direct thermal print handler for notification banner (100% inline, no navigation, no alert)
   const handleRetryPrint = async (order: Order) => {
     try {
@@ -2334,6 +2374,22 @@ export default function PosBillingPortal({
               >
                 <Ticket className="w-3 h-3 text-amber-950" />
                 <span>TOKEN</span>
+              </button>
+
+              {/* 6. PRINT ALL 3 (TOKEN -> AUTOCUT -> BILL -> AUTOCUT -> KOT -> AUTOCUT) */}
+              <button
+                type="button"
+                onClick={handlePrintAllThree}
+                disabled={cart.length === 0 && !activeOrderForSelectedTable}
+                className={`py-2 px-1 rounded-lg font-mono font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${
+                  cart.length === 0 && !activeOrderForSelectedTable
+                    ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
+                    : "bg-gradient-to-r from-emerald-600 via-amber-500 to-purple-600 hover:opacity-95 text-white shadow-md cursor-pointer active:scale-95 border border-white/20"
+                }`}
+                title="Print Token Slip (AutoCut) -> Bill (AutoCut) -> KOT (AutoCut)"
+              >
+                <Printer className="w-3 h-3 text-white animate-pulse" />
+                <span>PRINT ALL 3</span>
               </button>
             </div>
           </div>
