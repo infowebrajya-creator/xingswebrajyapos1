@@ -2318,7 +2318,7 @@ export default function PosBillingPortal({
                 disabled={cart.length === 0 && !activeOrderForSelectedTable}
                 className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0 && !activeOrderForSelectedTable
                   ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-red-600 hover:bg-red-500 text-white shadow-xs cursor-pointer active:scale-95 border border-red-500/40"
+                  : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs cursor-pointer active:scale-95 border border-emerald-500/40 font-bold"
                   }`}
                 title="Settle Bill & Collect Payment"
               >
@@ -2333,7 +2333,7 @@ export default function PosBillingPortal({
                 disabled={cart.length === 0 || isFinalizing}
                 className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0 || isFinalizing
                   ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-red-600 hover:bg-red-500 text-white shadow-xs cursor-pointer active:scale-95 border border-red-500/40"
+                  : "bg-[#C67C4E] hover:bg-[#aa7c11] text-white shadow-xs cursor-pointer active:scale-95 border border-[#C67C4E]/40 font-bold"
                   }`}
                 title="View Bill Preview & Print"
               >
@@ -2348,7 +2348,7 @@ export default function PosBillingPortal({
                 disabled={cart.length === 0 || isPrintingKOT || isFinalizing}
                 className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0 || isPrintingKOT || isFinalizing
                   ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-red-600 hover:bg-red-500 text-white shadow-xs cursor-pointer active:scale-95 border border-red-500/40"
+                  : "bg-purple-600 hover:bg-purple-500 text-white shadow-xs cursor-pointer active:scale-95 border border-purple-500/40 font-bold"
                   }`}
                 title="Print Kitchen Order Ticket"
               >
@@ -2369,10 +2369,10 @@ export default function PosBillingPortal({
                     restaurantName: settings?.name || "THE XINGS KITCHEN POS"
                   });
                 }}
-                className="py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 bg-red-600 hover:bg-red-500 text-white shadow-xs cursor-pointer active:scale-95 border border-red-500/40 font-black"
+                className="py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 bg-amber-400 hover:bg-amber-300 text-stone-950 shadow-xs cursor-pointer active:scale-95 border border-amber-500/50 font-black"
                 title="Print Customer Token Slip"
               >
-                <Ticket className="w-3 h-3 text-white" />
+                <Ticket className="w-3 h-3 text-amber-950" />
                 <span>TOKEN</span>
               </button>
 
@@ -2384,7 +2384,7 @@ export default function PosBillingPortal({
                 className={`py-2 px-1 rounded-lg font-mono font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${
                   cart.length === 0 && !activeOrderForSelectedTable
                     ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                    : "bg-red-600 hover:bg-red-500 text-white shadow-md cursor-pointer active:scale-95 border border-red-500/40"
+                    : "bg-gradient-to-r from-emerald-600 via-amber-500 to-purple-600 hover:opacity-95 text-white shadow-md cursor-pointer active:scale-95 border border-white/20 font-black"
                 }`}
                 title="Print Token Slip (AutoCut) -> Bill (AutoCut) -> KOT (AutoCut)"
               >
