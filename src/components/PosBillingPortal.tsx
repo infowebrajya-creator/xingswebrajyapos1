@@ -2384,7 +2384,7 @@ export default function PosBillingPortal({
                 className={`py-2 px-1 rounded-lg font-mono font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${
                   cart.length === 0 && !activeOrderForSelectedTable
                     ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                    : "bg-gradient-to-r from-emerald-600 via-amber-500 to-purple-600 hover:opacity-95 text-white shadow-md cursor-pointer active:scale-95 border border-white/20 font-black"
+                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-md cursor-pointer active:scale-95 border border-blue-400/40 font-black"
                 }`}
                 title="Print Token Slip (AutoCut) -> Bill (AutoCut) -> KOT (AutoCut)"
               >
