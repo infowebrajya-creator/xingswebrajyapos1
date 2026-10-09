@@ -1847,6 +1847,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             <Settings className="w-3.5 h-3.5" />
             <span>Settings</span>
           </button>
+          <button
+            type="button"
+            onClick={() => handleTabSelect("printers")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "printers" ? "bg-[#C67C4E] text-white shadow-2xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-200/60"
+            }`}
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Printers</span>
+          </button>
         </div>
 
         {/* Diagnostic controls & audio alert toggle */}
@@ -2886,6 +2896,31 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   >
                     <CheckCircle className="w-4 h-4" />
                     <span>Save All Changes</span>
+                  </button>
+                </div>
+
+                {/* Thermal Printers & 3-Window Simulator Quick Navigation Banner */}
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs text-left">
+                  <div className="flex items-center gap-3">
+                    <span className="p-2.5 bg-amber-100 text-amber-900 rounded-xl border border-amber-300">
+                      <Printer className="w-5 h-5 text-amber-800" />
+                    </span>
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider font-mono">
+                        🖨️ HARDWARE PRINTER MANAGER & 3-WINDOW SIMULATOR
+                      </h4>
+                      <p className="text-[11px] text-amber-900 font-sans mt-0.5">
+                        Configure physical thermal printers, test 80mm/58mm rolls, and preview Token Slips, Tax Invoice Bills & Kitchen KOTs.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleTabSelect("printers")}
+                    className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                  >
+                    <span>Open Printers Manager</span>
+                    <span>→</span>
                   </button>
                 </div>
 
