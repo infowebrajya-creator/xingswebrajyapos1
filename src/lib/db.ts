@@ -94,6 +94,7 @@ export interface Order {
   payments?: PaymentRecord[];
   splitSettlements?: SplitSettlement[];
   kotNumber?: string;
+  tokenNumber?: string;
   kotPrintStatus?: "Pending" | "Printing" | "Printed" | "Failed";
   kotPrintTimestamp?: string;
   billPrintStatus?: "Pending" | "Printing" | "Printed" | "Failed";
@@ -473,11 +474,33 @@ export class LocalDB {
     }
   }
 
+  static getNextTokenNumber(): string {
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const savedDate = localStorage.getItem("ij_today_token_date");
+      let currentCounter = parseInt(localStorage.getItem("ij_today_token_counter") || "0", 10);
+
+      if (savedDate !== todayStr || isNaN(currentCounter) || currentCounter < 0) {
+        currentCounter = 0;
+        localStorage.setItem("ij_today_token_date", todayStr);
+      }
+
+      const nextCounter = currentCounter + 1;
+      localStorage.setItem("ij_today_token_counter", nextCounter.toString());
+      return String(nextCounter);
+    } catch {
+      return String(Math.floor(Math.random() * 90) + 10);
+    }
+  }
+
   static saveOrders(orders: Order[]): void {
     const seen = new Set<string>();
     const unique: Order[] = [];
     for (const item of orders) {
       if (item && item.id && !seen.has(item.id)) {
+        if (!item.tokenNumber) {
+          item.tokenNumber = this.getNextTokenNumber();
+        }
         seen.add(item.id);
         unique.push(item);
       }

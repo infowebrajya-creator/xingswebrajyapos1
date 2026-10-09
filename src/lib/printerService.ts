@@ -103,6 +103,65 @@ export class PhysicalThermalPrinter {
   }
 
   /**
+   * Generate PrintableLine array for Customer Token Slip (Minimal Format)
+   */
+  public static generateCustomerTokenLines(data: {
+    tokenNumber?: string;
+    orderType?: string;
+    tableNumber?: string;
+    createdAt?: string;
+    restaurantName?: string;
+  }, width: "58mm" | "80mm" = "80mm"): PrintableLine[] {
+    const dividerDouble = "=".repeat(32);
+    const dividerSingle = "-".repeat(32);
+    const lines: PrintableLine[] = [];
+
+    const brandName = (data.restaurantName || "THE XINGS KITCHEN POS").toUpperCase();
+
+    // 1. Brand Header
+    lines.push({ text: dividerDouble, align: "center" });
+    lines.push({ text: brandName, align: "center", bold: true });
+    lines.push({ text: dividerDouble, align: "center" });
+    lines.push({ text: "", align: "center" });
+
+    // 2. Token Number Box
+    lines.push({ text: "T O K E N   N O .", align: "center", bold: true });
+    lines.push({ text: "┌─────────┐", align: "center", bold: true });
+    const tokenClean = String(data.tokenNumber || "1").trim();
+    const tokenDisplay = tokenClean.padStart(2, " ");
+    lines.push({ text: `│   ${tokenDisplay}   │`, align: "center", bold: true, doubleSize: true });
+    lines.push({ text: "└─────────┘", align: "center", bold: true });
+    lines.push({ text: "", align: "center" });
+
+    // 3. Metadata Section
+    const isTakeaway = (data.orderType || "").toLowerCase() === "takeaway";
+    const tableStr = data.tableNumber && data.tableNumber !== "0" && !isTakeaway
+      ? ` / TABLE #${data.tableNumber}`
+      : "";
+    lines.push({ text: `Order Type: ${(data.orderType || "TAKEAWAY").toUpperCase()}${tableStr}`, align: "left" });
+
+    const d = new Date(data.createdAt || Date.now());
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const dateStr = `Date: ${day}/${month}/${year}  ${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+    lines.push({ text: dateStr, align: "left" });
+
+    // 4. Footer Message
+    lines.push({ text: "", align: "center" });
+    lines.push({ text: dividerSingle, align: "center" });
+    lines.push({ text: "Please hold this slip for pickup!", align: "center", bold: true });
+    lines.push({ text: dividerDouble, align: "center" });
+
+    return lines;
+  }
+
+  /**
    * Generate PrintableLine array for Kitchen Order Ticket (KOT)
    */
   public static generateKOTLines(data: PrinterData, width: "58mm" | "80mm" = "80mm", cashierName: string = "Cashier"): PrintableLine[] {
@@ -1635,6 +1694,98 @@ export class PhysicalThermalPrinter {
       console.error("WebSerial connection failed:", err);
       return false;
     }
+  }
+
+  /**
+   * Print Customer Token Slip (Browser Popup / ESC/POS)
+   */
+  public static printCustomerTokenSlip(data: {
+    tokenNumber?: string;
+    orderType?: string;
+    tableNumber?: string;
+    createdAt?: string;
+    restaurantName?: string;
+  }): void {
+    const lines = this.generateCustomerTokenLines(data);
+    const textContent = lines.map(l => l.text).join("\n");
+    
+    const printWin = window.open("", "_blank", "width=350,height=450");
+    if (!printWin) {
+      alert(`TOKEN #${data.tokenNumber || "1"}\n\n${textContent}`);
+      return;
+    }
+
+    const d = new Date(data.createdAt || Date.now());
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const dateFormatted = `${day}/${month}/${year}  ${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+    const isTakeaway = (data.orderType || "").toLowerCase() === "takeaway";
+    const tableStr = data.tableNumber && data.tableNumber !== "0" && !isTakeaway
+      ? ` / TABLE #${data.tableNumber}`
+      : "";
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>TOKEN #${data.tokenNumber || "1"}</title>
+          <style>
+            @media print {
+              @page { margin: 0; size: 80mm auto; }
+              body { margin: 0; padding: 10px; }
+            }
+            body {
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 13px;
+              color: #000;
+              margin: 0;
+              padding: 15px;
+              text-align: center;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+            .token-box {
+              border: 2px solid #000;
+              display: inline-block;
+              padding: 6px 20px;
+              font-size: 32px;
+              font-weight: bold;
+              margin: 8px 0;
+            }
+            .bold { font-weight: bold; }
+            .left { text-align: left; }
+          </style>
+        </head>
+        <body>
+          <div class="bold">========================================</div>
+          <div class="bold">${(data.restaurantName || "THE XINGS KITCHEN POS").toUpperCase()}</div>
+          <div class="bold">========================================</div>
+          <br/>
+          <div class="bold">T O K E N   N O .</div>
+          <div class="token-box">${data.tokenNumber || "1"}</div>
+          <br/>
+          <div class="left">Order Type: ${(data.orderType || "TAKEAWAY").toUpperCase()}${tableStr}</div>
+          <div class="left">Date: ${dateFormatted}</div>
+          <br/>
+          <div>----------------------------------------</div>
+          <div class="bold">Please hold this slip for pickup!</div>
+          <div>========================================</div>
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
   }
 
   /**

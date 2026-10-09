@@ -4,7 +4,7 @@ import {
   Trash2, Edit3, ClipboardList, CheckCircle, FileText, ShoppingCart,
   Percent, ArrowRight, User, Phone, MapPin, Sparkles, Hash, Layers,
   Printer, AlertCircle, RefreshCw, X, ArrowRightLeft, Receipt, Loader2, CheckCircle2,
-  MessageCircle, UtensilsCrossed, Users, MessageSquare
+  MessageCircle, UtensilsCrossed, Users, MessageSquare, Ticket
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LocalDB, Order, Coupon, InventoryItem, AuditLog, RestaurantSettings, isSameTable } from "../lib/db";
@@ -85,6 +85,7 @@ export default function PosBillingPortal({
   const [paxCount, setPaxCount] = useState<number>(1);
   const [orderInstructions, setOrderInstructions] = useState<string>("");
   const [transferModalTable, setTransferModalTable] = useState<string | null>(null);
+  const [currentOrderToken, setCurrentOrderToken] = useState<string>(() => LocalDB.getNextTokenNumber());
 
   // Group cart items into printed KOT batches and new unprinted items
   const groupedKotItems = useMemo(() => {
@@ -824,6 +825,7 @@ export default function PosBillingPortal({
         email: customerEmail.trim() || "walkin@webrajya.com",
         orderType: orderType,
         tableNumber: orderType === "dine-in" ? selectedTable : undefined,
+        tokenNumber: currentOrderToken,
         address: orderType === "delivery" ? customerAddress.trim() : undefined,
         pax: paxCount,
         orderInstructions: orderInstructions.trim() || undefined,
@@ -897,6 +899,7 @@ export default function PosBillingPortal({
       setSelectedTable("");
       setAppliedCoupon(null);
       setCouponCode("");
+      setCurrentOrderToken(LocalDB.getNextTokenNumber());
 
       // DIRECT THERMAL PRINTING VIA JSPRINTMANAGER (CUSTOMER BILL)
       try {
@@ -1832,11 +1835,13 @@ export default function PosBillingPortal({
                 )}
               </div>
 
-              {/* Box 2: Invc / Token # */}
-              <div className="bg-white p-1.5 rounded-lg border border-stone-200 shadow-2xs flex flex-col justify-between min-h-[46px]">
-                <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider block">INVC / TOKEN #</span>
-                <span className="font-bold font-mono text-amber-700 text-[11px] truncate py-0.5">
-                  {activeOrderForSelectedTable ? `#${activeOrderForSelectedTable.id.slice(-6)}` : "Auto-Gen"}
+              {/* Box 2: TOKEN # */}
+              <div className="bg-[#FAF8F5] p-1.5 rounded-lg border border-amber-300/80 shadow-2xs flex flex-col justify-between min-h-[46px]">
+                <span className="text-[8px] font-bold text-amber-900 uppercase tracking-wider block">TOKEN #</span>
+                <span className="font-bold font-mono text-amber-900 text-[11px] truncate py-0.5 flex items-center gap-1">
+                  <span className="px-1.5 py-0.2 bg-amber-200/80 text-amber-950 rounded font-black border border-amber-400/50">
+                    #{activeOrderForSelectedTable?.tokenNumber || currentOrderToken}
+                  </span>
                 </span>
               </div>
 
@@ -2309,6 +2314,26 @@ export default function PosBillingPortal({
               >
                 <UtensilsCrossed className="w-3 h-3" />
                 <span>KOT</span>
+              </button>
+
+              {/* 5. PRINT TOKEN SLIP */}
+              <button
+                type="button"
+                onClick={() => {
+                  const tok = activeOrderForSelectedTable?.tokenNumber || currentOrderToken;
+                  PhysicalThermalPrinter.printCustomerTokenSlip({
+                    tokenNumber: tok,
+                    orderType,
+                    tableNumber: selectedTable,
+                    createdAt: activeOrderForSelectedTable?.createdAt || new Date().toISOString(),
+                    restaurantName: settings?.name || "THE XINGS KITCHEN POS"
+                  });
+                }}
+                className="py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 bg-amber-400 hover:bg-amber-300 text-stone-950 shadow-xs cursor-pointer active:scale-95 border border-amber-500/50 font-black"
+                title="Print Customer Token Slip"
+              >
+                <Ticket className="w-3 h-3 text-amber-950" />
+                <span>TOKEN</span>
               </button>
             </div>
           </div>

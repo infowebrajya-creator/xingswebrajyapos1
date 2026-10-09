@@ -2047,7 +2047,14 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                         ) : (
                           orders.slice(0, 8).map((order) => (
                             <tr key={order.id} className="hover:bg-stone-50/60 transition-colors">
-                              <td className="p-3 font-mono font-bold text-stone-900">#{order.id.slice(0, 8)}</td>
+                              <td className="p-3 font-mono font-bold text-stone-900">
+                                <div className="flex flex-col gap-0.5">
+                                  <span>#{order.id.slice(0, 8)}</span>
+                                  <span className="text-[9px] text-amber-900 bg-amber-100/90 px-1.5 py-0.2 rounded w-fit font-black border border-amber-300">
+                                    TOKEN #{order.tokenNumber || "1"}
+                                  </span>
+                                </div>
+                              </td>
                               <td className="p-3 font-mono text-xs">{order.orderType === "dine-in" ? `Table ${order.tableNumber || "-"}` : order.orderType}</td>
                               <td className="p-3 font-medium">{order.customerName || "Walk-In Guest"}</td>
                               <td className="p-3 font-mono">{order.items?.length || 0} items</td>
