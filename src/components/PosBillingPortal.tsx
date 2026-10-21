@@ -2185,8 +2185,8 @@ export default function PosBillingPortal({
               </div>
             </div>
 
-            {/* Horizontal Scrollable Table Chips: T1, T2, T3... */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar select-none">
+            {/* Horizontal Scrollable Square Table Tiles (4:4 cm ratio for enhanced visibility) */}
+            <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 pt-1 no-scrollbar select-none">
               {tables.map(table => {
                 const activeOrd = orders.find(
                   o => o.orderType === "dine-in" &&
@@ -2206,33 +2206,54 @@ export default function PosBillingPortal({
                       setOrderType("dine-in");
                       handleTableChange(table.tableNumber);
                     }}
-                    className={`px-3 py-2 rounded-xl border text-left transition-all shrink-0 cursor-pointer flex items-center gap-2 ${
+                    className={`w-[84px] h-[84px] sm:w-[92px] sm:h-[92px] shrink-0 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-between p-2 relative group ${
                       isSelected
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30 scale-105"
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/40 scale-105"
                         : isOccupied
-                          ? "bg-rose-50 hover:bg-rose-100 text-rose-950 border-rose-200/90"
-                          : "bg-stone-50 hover:bg-emerald-50/50 text-stone-800 border-stone-200 hover:border-emerald-300"
+                          ? "bg-rose-50 hover:bg-rose-100/90 text-rose-950 border-rose-200/90 shadow-2xs"
+                          : "bg-white hover:bg-emerald-50/40 text-stone-900 border-stone-200 hover:border-emerald-300 shadow-2xs"
                     }`}
                   >
-                    <div className="flex items-center gap-1.5">
+                    {/* Top Row: Status Dot & Guest Capacity */}
+                    <div className="w-full flex items-center justify-between text-[10px] leading-none">
                       <span className={`w-2 h-2 rounded-full shrink-0 ${
-                        isSelected ? "bg-white" : isOccupied ? "bg-rose-500 animate-pulse" : "bg-emerald-500"
+                        isSelected
+                          ? "bg-white"
+                          : isOccupied
+                            ? "bg-rose-500 animate-pulse"
+                            : "bg-emerald-500"
                       }`} />
-                      <span className="font-mono font-extrabold text-xs sm:text-sm">
+                      <span className={`font-mono text-[9px] font-semibold ${
+                        isSelected ? "text-white/80" : "text-stone-400"
+                      }`}>
+                        {table.capacity}p
+                      </span>
+                    </div>
+
+                    {/* Center: Large Bold Table Number */}
+                    <div className="flex flex-col items-center justify-center my-0.5">
+                      <span className={`font-mono font-black text-base sm:text-lg tracking-tight ${
+                        isSelected ? "text-white" : isOccupied ? "text-rose-950" : "text-stone-900"
+                      }`}>
                         T{table.tableNumber}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 text-[10px]">
+                    {/* Bottom Row: Amount Badge or Status */}
+                    <div className="w-full flex items-center justify-center">
                       {hasOrder ? (
-                        <span className={`font-mono font-bold px-1.5 py-0.2 rounded ${
-                          isSelected ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700 font-extrabold"
+                        <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded-md truncate max-w-full ${
+                          isSelected
+                            ? "bg-white/20 text-white"
+                            : "bg-rose-100 text-rose-700 font-black"
                         }`}>
                           ₹{activeOrd.grandTotal}
                         </span>
                       ) : (
-                        <span className={`font-medium ${isSelected ? "text-white/80" : "text-stone-400"}`}>
-                          {table.capacity}p
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                          isSelected ? "text-white/90" : "text-emerald-600"
+                        }`}>
+                          Free
                         </span>
                       )}
                     </div>
