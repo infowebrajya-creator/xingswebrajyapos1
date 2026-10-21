@@ -142,7 +142,7 @@ export default function CartOverlay({
   );
   const settings = LocalDB.getSettings();
   const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Math.round(subtotal * (settings.gstRate / 100)) : 0;
-  const packagingCharge = orderType === "dine-in" || orderType === "takeaway" ? 0 : 25; // Delivery packaging only; takeaway has 0 packaging
+  const packagingCharge = orderType === "takeaway" ? 10 : (orderType === "delivery" ? 25 : 0);
   const grandTotal = subtotal + gst + packagingCharge;
 
   const handleCheckout = async (e: React.FormEvent) => {

@@ -176,7 +176,7 @@ export const SplitBillModal: React.FC<SplitBillModalProps> = ({
     const orderSubtotal = currentOrder.subtotal || 1;
     const effectiveDiscount = currentOrder.discountAmount || 0;
     const effectiveGst = currentOrder.gst || 0;
-    const effectivePackaging = (currentOrder.orderType || "").toLowerCase() === "takeaway" ? 0 : (currentOrder.packagingCharge || 0);
+    const effectivePackaging = Number(currentOrder.packagingCharge || 0);
 
     const summaries = itemSplitPeople.map(person => {
       let personSubtotal = 0;

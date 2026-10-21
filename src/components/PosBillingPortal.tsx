@@ -5,7 +5,7 @@ import {
   Percent, ArrowRight, User, Phone, MapPin, Sparkles, Hash, Layers,
   Printer, AlertCircle, RefreshCw, X, ArrowRightLeft, Receipt, Loader2, CheckCircle2,
   MessageCircle, UtensilsCrossed, Users, MessageSquare, ChevronLeft, ChevronRight, Flame, Filter,
-  Zap, LayoutGrid, CornerDownLeft
+  Zap, LayoutGrid, CornerDownLeft, Package
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LocalDB, Order, Coupon, InventoryItem, AuditLog, RestaurantSettings, isSameTable } from "../lib/db";
@@ -19,6 +19,12 @@ import TransferTableModal from "./TransferTableModal";
 import { SplitBillModal } from "./SplitBillModal";
 import WhatsAppDailySummaryModal from "./WhatsAppDailySummaryModal";
 import VisualTableManagement from "./VisualTableManagement";
+
+export const isParcelTable = (num?: string | number): boolean => {
+  if (!num && num !== 0) return false;
+  const s = String(num).trim().toUpperCase();
+  return s.startsWith("P") || s.includes("PARCEL");
+};
 
 interface PosBillingPortalProps {
   menuItems: MenuItem[];
@@ -84,6 +90,27 @@ export default function PosBillingPortal({
   const [selectedStaffName, setSelectedStaffName] = useState<string>(() => activeStaff.name || "SATENDRA");
   const [paxCount, setPaxCount] = useState<number>(1);
   const [orderInstructions, setOrderInstructions] = useState<string>("");
+
+  // Segregated Dining Tables and 3 Standard Parcel Tables
+  const diningTables = useMemo(() => {
+    return tables.filter(t => !isParcelTable(t.tableNumber));
+  }, [tables]);
+
+  const parcelTables = useMemo(() => {
+    const pts = tables.filter(t => isParcelTable(t.tableNumber));
+    const baseSlots = ["P1", "P2", "P3"];
+    return baseSlots.map((slotNum, idx) => {
+      const existing = pts.find(t => isSameTable(t.tableNumber, slotNum));
+      if (existing) return existing;
+      return {
+        id: `tbl-p0${idx + 1}`,
+        tableNumber: slotNum,
+        capacity: 1,
+        seatingArea: "Parcel / Takeaway",
+        status: "Available" as const
+      };
+    });
+  }, [tables]);
 
 
   // Quick Catalog Filter States
@@ -198,7 +225,7 @@ export default function PosBillingPortal({
 
   const handleTableChange = (newTable: string) => {
     // 1. Save active cart and customer details for current selectedTable before switching
-    if (selectedTable && orderType === "dine-in") {
+    if (selectedTable) {
       setTableCarts(prev => ({ ...prev, [selectedTable]: cart }));
       setTableCustomerInfo(prev => ({
         ...prev,
@@ -235,8 +262,7 @@ export default function PosBillingPortal({
     } else {
       // 3. Otherwise, check for existing active unpaid order for newTable
       const activeOrder = orders.find(
-        o => o.orderType === "dine-in" &&
-          isSameTable(o.tableNumber, newTable) &&
+        o => isSameTable(o.tableNumber, newTable) &&
           o.paymentStatus !== "Paid" &&
           o.orderStatus !== "Cancelled"
       );
@@ -257,7 +283,7 @@ export default function PosBillingPortal({
           kotNumber: item.kotNumber || activeOrder.kotNumber || "KOT-0001"
         }));
         setCart(loadedCart);
-        setCustomerName(activeOrder.customerName || `Table #${newTable}`);
+        setCustomerName(activeOrder.customerName || (isParcelTable(newTable) ? `Parcel #${newTable}` : `Table #${newTable}`));
         setCustomerPhone(activeOrder.phoneNumber || "");
         setCustomerEmail(activeOrder.email || "");
         setCustomerAddress(activeOrder.address || "");
@@ -273,7 +299,11 @@ export default function PosBillingPortal({
 
   useEffect(() => {
     if (initialTableNumber) {
-      setOrderType("dine-in");
+      if (isParcelTable(initialTableNumber)) {
+        setOrderType("takeaway");
+      } else {
+        setOrderType("dine-in");
+      }
       handleTableChange(initialTableNumber);
     }
   }, [initialTableNumber]);
@@ -361,14 +391,13 @@ export default function PosBillingPortal({
   }, [onOrderPlaced]);
 
   const activeOrderForSelectedTable = useMemo(() => {
-    if (orderType !== "dine-in" || !selectedTable) return null;
+    if (!selectedTable) return null;
     return orders.find(o =>
-      o.orderType === "dine-in" &&
       isSameTable(o.tableNumber, selectedTable) &&
       o.paymentStatus !== "Paid" &&
       o.orderStatus !== "Cancelled"
     );
-  }, [orderType, selectedTable, orders]);
+  }, [selectedTable, orders]);
 
 
   // Modals Toggles
@@ -435,8 +464,9 @@ export default function PosBillingPortal({
     const netTaxableSubtotal = Math.max(0, rawSubtotal - totalDiscount - couponDiscountAmount);
     const taxRes = calculateTax(netTaxableSubtotal, settings);
 
-    const packagingCharge = (orderType === "dine-in" || orderType === "takeaway") ? 0 : 25;
-    const finalGrandTotal = Math.max(0, Math.round(netTaxableSubtotal + taxRes.totalGst + packagingCharge));
+    const isParcel = orderType === "takeaway" || isParcelTable(selectedTable);
+    const packagingCharge = isParcel && cart.length > 0 ? 10 : 0;
+    const finalGrandTotal = cart.length === 0 ? 0 : Math.max(0, Math.round(netTaxableSubtotal + taxRes.totalGst + packagingCharge));
 
     return {
       subtotal: rawSubtotal,
@@ -452,7 +482,7 @@ export default function PosBillingPortal({
       packaging: packagingCharge,
       grandTotal: finalGrandTotal
     };
-  }, [cart, appliedCoupon, orderType, settings]);
+  }, [cart, appliedCoupon, orderType, selectedTable, settings]);
 
   // Handle adding regular menu items to cart
   const handleAddRegularToCart = (item: MenuItem) => {
@@ -623,11 +653,11 @@ export default function PosBillingPortal({
 
   const syncCartToActiveOrder = async (updatedCart: CartItem[]) => {
     setCart(updatedCart);
-    if (selectedTable && orderType === "dine-in") {
+    if (selectedTable) {
       setTableCarts(prev => ({ ...prev, [selectedTable]: updatedCart }));
     }
 
-    if (orderType === "dine-in" && selectedTable && activeOrderForSelectedTable) {
+    if (selectedTable && activeOrderForSelectedTable) {
       const newItems = updatedCart.map(item => ({
         menuItemId: item.isManual ? "manual" : item.id.replace("reg-", ""),
         name: item.name,
@@ -654,12 +684,16 @@ export default function PosBillingPortal({
         }
       });
 
+      const isParcel = (activeOrderForSelectedTable.orderType || "").toLowerCase() === "takeaway" || isParcelTable(selectedTable);
+      const packaging = isParcel && updatedCart.length > 0 ? 10 : (activeOrderForSelectedTable.packagingCharge || 0);
+      const newGrand = updatedCart.length === 0 ? 0 : Math.max(0, Math.round(newSub + newGst + packaging - (activeOrderForSelectedTable.discountAmount || 0)));
+
       await LocalDB.apiUpdateOrderItems(
         activeOrderForSelectedTable.id,
         newItems,
         newSub,
         newGst,
-        newSub + newGst
+        newGrand
       );
       onOrderPlaced();
     }
@@ -963,16 +997,16 @@ export default function PosBillingPortal({
 
       const defaultName = orderType === "dine-in"
         ? "Walk-in Guest"
-        : orderType === "takeaway"
-          ? "Takeaway Guest"
-          : "Delivery Customer";
+        : isParcelTable(selectedTable)
+          ? `Parcel Guest (${selectedTable})`
+          : "Takeaway Guest";
 
       const orderPayload: Omit<Order, "id" | "createdAt"> = {
         customerName: customerName.trim() || defaultName,
         phoneNumber: customerPhone.trim() || (orderType === "dine-in" ? "+91 00000 00000" : ""),
         email: customerEmail.trim() || "walkin@webrajya.com",
         orderType: orderType,
-        tableNumber: orderType === "dine-in" ? selectedTable : undefined,
+        tableNumber: selectedTable || undefined,
         address: orderType === "delivery" ? customerAddress.trim() : undefined,
         pax: paxCount,
         orderInstructions: orderInstructions.trim() || undefined,
@@ -1008,28 +1042,27 @@ export default function PosBillingPortal({
         `POS (${currentRole})`
       );
 
-      // If dine-in, mark table status as Available & clear table session memory
-      if (orderType === "dine-in" && selectedTable) {
+      // Release table status and clear table cart session memory
+      if (selectedTable) {
         const dbTables = LocalDB.getTables();
         const targetStatus = "Available";
         LocalDB.saveTables(dbTables.map(t => isSameTable(t.tableNumber, selectedTable) ? { ...t, status: targetStatus } : t));
 
-        if (targetStatus === "Available") {
-          setTableCarts(prev => {
-            const next = { ...prev };
-            Object.keys(next).forEach(k => {
-              if (isSameTable(k, selectedTable)) delete next[k];
-            });
-            return next;
+        setTableCarts(prev => {
+          const next = { ...prev };
+          Object.keys(next).forEach(k => {
+            if (isSameTable(k, selectedTable)) delete next[k];
           });
-          setTableCustomerInfo(prev => {
-            const next = { ...prev };
-            Object.keys(next).forEach(k => {
-              if (isSameTable(k, selectedTable)) delete next[k];
-            });
-            return next;
+          return next;
+        });
+        setTableCustomerInfo(prev => {
+          const next = { ...prev };
+          Object.keys(next).forEach(k => {
+            if (isSameTable(k, selectedTable)) delete next[k];
           });
-        }
+          return next;
+        });
+        setSelectedTable("");
       }
 
       onOrderPlaced();
@@ -1208,9 +1241,9 @@ export default function PosBillingPortal({
         kotNumber: kotNumber,
         kotTitle: isReprint ? "KOT (RE-PRINT)" : "KOT",
         orderId: selectedTable ? `TBL-${selectedTable}` : `POS-${Date.now().toString().slice(-4)}`,
-        tableNumber: orderType === "dine-in" ? selectedTable : undefined,
+        tableNumber: selectedTable || undefined,
         orderType: orderType,
-        customerName: customerName.trim() || (orderType === "dine-in" ? `Table #${selectedTable}` : "Takeaway Guest"),
+        customerName: customerName.trim() || (isParcelTable(selectedTable) ? `Parcel #${selectedTable}` : (orderType === "dine-in" ? `Table #${selectedTable}` : "Takeaway Guest")),
         phoneNumber: customerPhone.trim() || undefined,
         restaurantName: settings?.name || "KITCHEN ORDER TICKET",
         createdAt: new Date().toISOString(),
@@ -1235,9 +1268,9 @@ export default function PosBillingPortal({
       }));
       setCart(updatedCart);
 
-      if (orderType === "dine-in" && selectedTable) {
+      if (selectedTable) {
         const dbTables = LocalDB.getTables();
-        LocalDB.saveTables(dbTables.map(t => t.tableNumber === selectedTable ? { ...t, status: "Occupied" } : t));
+        LocalDB.saveTables(dbTables.map(t => isSameTable(t.tableNumber, selectedTable) ? { ...t, status: "Occupied" } : t));
         setTableCarts(prev => ({ ...prev, [selectedTable]: updatedCart }));
         setTableCustomerInfo(prev => ({
           ...prev,
@@ -1250,9 +1283,9 @@ export default function PosBillingPortal({
         }));
 
         LocalDB.addOrder({
-          orderType: "dine-in",
+          orderType: orderType,
           tableNumber: selectedTable,
-          customerName: customerName.trim() || `Table #${selectedTable}`,
+          customerName: customerName.trim() || (isParcelTable(selectedTable) ? `Parcel #${selectedTable}` : (orderType === "dine-in" ? `Table #${selectedTable}` : "Takeaway Guest")),
           phoneNumber: customerPhone.trim() || "",
           email: customerEmail || "",
           items: updatedCart.map(i => ({
@@ -2167,14 +2200,16 @@ export default function PosBillingPortal({
 
           {/* Top Order Type Modern Segmented Control */}
           <div className="p-2.5 bg-stone-50 border-b border-stone-200 flex-shrink-0">
-            <div className="grid grid-cols-3 gap-1 bg-stone-200/70 p-1 rounded-xl border border-stone-200">
-              {(["dine-in", "takeaway", "delivery"] as const).map((type) => (
+            <div className="grid grid-cols-2 gap-1 bg-stone-200/70 p-1 rounded-xl border border-stone-200">
+              {(["dine-in", "takeaway"] as const).map((type) => (
                 <button
                   key={type}
                   type="button"
                   onClick={() => {
                     setOrderType(type);
-                    if (type !== "dine-in") {
+                    if (type === "dine-in" && isParcelTable(selectedTable)) {
+                      handleTableChange("");
+                    } else if (type === "takeaway" && selectedTable && !isParcelTable(selectedTable)) {
                       handleTableChange("");
                     }
                   }}
@@ -2184,7 +2219,7 @@ export default function PosBillingPortal({
                       : "text-stone-600 hover:text-stone-900 hover:bg-white/60"
                   }`}
                 >
-                  <span>{type === "dine-in" ? "🍽️ Dine-In" : type === "takeaway" ? "🥡 Takeaway" : "🛵 Delivery"}</span>
+                  <span>{type === "dine-in" ? "🍽️ Dine-In" : "🥡 Takeaway"}</span>
                 </button>
               ))}
             </div>
@@ -2204,7 +2239,7 @@ export default function PosBillingPortal({
                       className="bg-transparent font-bold font-mono text-stone-900 text-xs focus:outline-none cursor-pointer text-right max-w-[110px] truncate"
                     >
                       <option value="">Choose Table</option>
-                      {tables.map(table => (
+                      {diningTables.map(table => (
                         <option key={table.id} value={table.tableNumber}>
                           #{table.tableNumber} {table.status === "Occupied" ? "• Occupied" : ""}
                         </option>
@@ -2263,12 +2298,21 @@ export default function PosBillingPortal({
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  {/* Token Number */}
+                  {/* Parcel Slot / Table Selector */}
                   <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center justify-between">
-                    <span className="text-[9px] font-bold text-stone-400 uppercase">Token:</span>
-                    <span className="font-mono font-bold text-emerald-700 text-xs bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      {activeOrderForSelectedTable ? `#${activeOrderForSelectedTable.id.slice(-6)}` : "Auto-Gen"}
-                    </span>
+                    <span className="text-[9px] font-bold text-stone-400 uppercase">Parcel Slot:</span>
+                    <select
+                      value={selectedTable}
+                      onChange={(e) => handleTableChange(e.target.value)}
+                      className="bg-transparent font-bold font-mono text-stone-900 text-xs focus:outline-none cursor-pointer text-right max-w-[110px] truncate"
+                    >
+                      <option value="">Quick Counter</option>
+                      {parcelTables.map((p, idx) => (
+                        <option key={p.id || p.tableNumber} value={p.tableNumber}>
+                          #P0{idx + 1} (Parcel {idx + 1})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Staff Selector */}
@@ -2314,19 +2358,16 @@ export default function PosBillingPortal({
                   </div>
                 </div>
 
-                {orderType === "delivery" && (
-                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                    <input
-                      type="text"
-                      maxLength={100}
-                      value={customerAddress}
-                      onChange={(e) => setCustomerAddress(e.target.value)}
-                      placeholder="Delivery Address *"
-                      className="w-full bg-transparent text-stone-900 text-xs focus:outline-none placeholder:text-stone-400"
-                    />
+                {/* Mandatory ₹10 Parcel Fee Pill */}
+                <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50 border border-amber-250 rounded-xl text-amber-950 text-[10px] font-medium shadow-2xs">
+                  <div className="flex items-center gap-1.5">
+                    <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="font-bold">Mandatory Parcel Charge</span>
                   </div>
-                )}
+                  <span className="font-mono font-black text-amber-800 bg-amber-100/90 border border-amber-300/80 px-2 py-0.5 rounded-md text-[10px]">
+                    +₹10 Auto-Applied
+                  </span>
+                </div>
               </>
             )}
 
@@ -2626,6 +2667,12 @@ export default function PosBillingPortal({
                   Saved ₹{cartTotals.itemDiscounts + cartTotals.couponDiscount}
                 </span>
               )}
+              {cartTotals.packaging > 0 && (
+                <span className="text-amber-300 text-[10px] font-sans bg-amber-950/80 border border-amber-600/50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <span>+₹{cartTotals.packaging}</span>
+                  <span className="text-[9px] text-amber-200">Parcel Fee</span>
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-stone-400 text-xs font-sans">Grand Total:</span>
@@ -2748,38 +2795,37 @@ export default function PosBillingPortal({
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="font-bold text-xs sm:text-sm text-stone-900 font-serif whitespace-nowrap">
-                    Dining Tables
+                    Tables & Parcel
                   </span>
                   <span className="text-[10px] font-mono font-bold bg-stone-100 text-stone-600 px-1.5 py-0.2 rounded-full border border-stone-200">
-                    {tables.length} Total
+                    {diningTables.length} Dining + {parcelTables.length} Parcel
                   </span>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-[10px] font-semibold text-emerald-700 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    {tables.filter(t => t.status !== "Occupied" && !orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Free
+                    {diningTables.filter(t => t.status !== "Occupied" && !orders.some(o => isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length + parcelTables.filter(t => t.status !== "Occupied" && !orders.some(o => isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Free
                   </span>
                   <span className="text-[10px] font-semibold text-rose-700 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                    {tables.filter(t => t.status === "Occupied" || orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Active
+                    {diningTables.filter(t => t.status === "Occupied" || orders.some(o => isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length + parcelTables.filter(t => t.status === "Occupied" || orders.some(o => isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Active
                   </span>
                 </div>
               </div>
             </div>
 
-            {selectedTable && orderType === "dine-in" && (
-              <span className="inline-flex md:hidden items-center gap-1 bg-emerald-600 text-white px-2 py-0.5 rounded-lg text-xs font-bold font-mono">
-                T{selectedTable} Selected
+            {selectedTable && (
+              <span className={`inline-flex md:hidden items-center gap-1 text-white px-2 py-0.5 rounded-lg text-xs font-bold font-mono ${isParcelTable(selectedTable) ? "bg-amber-600" : "bg-emerald-600"}`}>
+                {isParcelTable(selectedTable) ? `P${selectedTable.replace(/\D/g, '') || "1"} Selected` : `T${selectedTable.replace(/^T/i, "")} Selected`}
               </span>
             )}
           </div>
 
-          {/* Horizontally Scrolling Square Table Tiles (4:4 cm / ~84x84px) */}
+          {/* Horizontally Scrolling Square Table Tiles (Dining Tables + 3 Parcel Tables) */}
           <div className="flex items-center gap-2.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar select-none flex-grow">
-            {tables.map(table => {
+            {diningTables.map(table => {
               const activeOrd = orders.find(
-                o => o.orderType === "dine-in" &&
-                  isSameTable(o.tableNumber, table.tableNumber) &&
+                o => isSameTable(o.tableNumber, table.tableNumber) &&
                   o.paymentStatus !== "Paid" &&
                   o.orderStatus !== "Cancelled"
               );
@@ -2824,7 +2870,7 @@ export default function PosBillingPortal({
                     <span className={`font-mono font-black text-base sm:text-lg tracking-tight ${
                       isSelected ? "text-white" : isOccupied ? "text-rose-950" : "text-stone-900"
                     }`}>
-                      T{table.tableNumber}
+                      T{table.tableNumber.replace(/^T/i, "")}
                     </span>
                   </div>
 
@@ -2841,6 +2887,100 @@ export default function PosBillingPortal({
                     ) : (
                       <span className={`text-[10px] font-bold uppercase tracking-wider ${
                         isSelected ? "text-white/90" : "text-emerald-600"
+                      }`}>
+                        Free
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+
+            {/* Divider between Dining Tables and 3 Parcel Tables */}
+            <div className="flex items-center gap-2 shrink-0 px-1 py-1">
+              <div className="w-[1.5px] h-12 bg-stone-300 rounded-full" />
+              <div className="flex flex-col justify-center">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 font-mono flex items-center gap-1">
+                  <span>📦</span>
+                  <span>PARCEL</span>
+                </span>
+                <span className="text-[8px] font-bold text-stone-500 uppercase">
+                  3 Tables
+                </span>
+              </div>
+            </div>
+
+            {/* 3 Dedicated Parcel Tables */}
+            {parcelTables.map((pTable, idx) => {
+              const activeOrd = orders.find(
+                o => isSameTable(o.tableNumber, pTable.tableNumber) &&
+                  o.paymentStatus !== "Paid" &&
+                  o.orderStatus !== "Cancelled"
+              );
+              const hasOrder = !!activeOrd;
+              const isOccupied = pTable.status === "Occupied" || hasOrder;
+              const isSelected = isSameTable(selectedTable, pTable.tableNumber) && orderType === "takeaway";
+
+              return (
+                <button
+                  key={pTable.id || `parcel-tbl-${idx}`}
+                  type="button"
+                  onClick={() => {
+                    setOrderType("takeaway");
+                    handleTableChange(pTable.tableNumber);
+                  }}
+                  className={`w-[82px] h-[82px] sm:w-[88px] sm:h-[88px] shrink-0 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-between p-2 relative group ${
+                    isSelected
+                      ? "bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-500/40 scale-105"
+                      : isOccupied
+                        ? "bg-rose-50 hover:bg-rose-100/90 text-rose-950 border-rose-200/90 shadow-2xs"
+                        : "bg-amber-50/40 hover:bg-amber-100/60 text-stone-900 border-amber-200/90 hover:border-amber-400 shadow-2xs"
+                  }`}
+                >
+                  {/* Top Row: Status Dot & Parcel Tag */}
+                  <div className="w-full flex items-center justify-between text-[10px] leading-none">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${
+                      isSelected
+                        ? "bg-white"
+                        : isOccupied
+                          ? "bg-rose-500 animate-pulse"
+                          : "bg-amber-500"
+                    }`} />
+                    <span className={`font-mono text-[9px] font-bold flex items-center gap-0.5 ${
+                      isSelected ? "text-white/90" : "text-amber-800"
+                    }`}>
+                      <span>📦</span>
+                      <span>Parcel</span>
+                    </span>
+                  </div>
+
+                  {/* Center: Large Bold Parcel Number & Subtitle */}
+                  <div className="flex flex-col items-center justify-center my-0.5">
+                    <span className={`font-mono font-black text-base sm:text-lg tracking-tight ${
+                      isSelected ? "text-white" : isOccupied ? "text-rose-950" : "text-stone-900"
+                    }`}>
+                      P0{idx + 1}
+                    </span>
+                    <span className={`text-[8px] font-bold uppercase tracking-tight leading-none ${
+                      isSelected ? "text-white/80" : "text-stone-500"
+                    }`}>
+                      Parcel {idx + 1}
+                    </span>
+                  </div>
+
+                  {/* Bottom Row: Amount Badge or Status */}
+                  <div className="w-full flex items-center justify-center">
+                    {hasOrder ? (
+                      <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded-md truncate max-w-full ${
+                        isSelected
+                          ? "bg-white/20 text-white"
+                          : "bg-rose-100 text-rose-700 font-black"
+                      }`}>
+                        ₹{activeOrd.grandTotal}
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                        isSelected ? "text-white/90" : "text-amber-700"
                       }`}>
                         Free
                       </span>

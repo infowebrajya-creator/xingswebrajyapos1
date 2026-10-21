@@ -14,6 +14,7 @@ import { PrintQueueManager } from "./lib/printQueueManager";
 import { JSPrintManagerService } from "./lib/jsprintmanagerService";
 import { CartItem, MenuItem, Category } from "./types";
 import { parseCurrentRoute, navigateTo, getScannedTableNumber } from "./lib/router";
+import { PWAInstallBanner } from "./components/PWAInstallModal";
 
 export default function App() {
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -268,26 +269,39 @@ export default function App() {
   // If view is administrative
   if (view === "admin") {
     if (adminToken) {
-      return <AdminDashboard onLogout={handleAdminLogout} />;
+      return (
+        <>
+          <AdminDashboard onLogout={handleAdminLogout} />
+          <PWAInstallBanner />
+        </>
+      );
     }
-    return <AdminLogin onLoginSuccess={handleAdminLoginSuccess} />;
+    return (
+      <>
+        <AdminLogin onLoginSuccess={handleAdminLoginSuccess} />
+        <PWAInstallBanner />
+      </>
+    );
   }
 
   if (isMobile) {
     return (
-      <MobileView
-        menuList={menuList}
-        cart={cart}
-        onAddToCart={handleAddToCart}
-        onRemoveFromCart={handleRemoveFromCart}
-        onRemoveEntirelyFromCart={handleRemoveEntirelyFromCart}
-        onUpdateCustomization={handleUpdateCustomization}
-        onClearCart={handleClearCart}
-        onAdminClick={() => {
-          navigateTo("/admin/dashboard");
-          setView("admin");
-        }}
-      />
+      <>
+        <MobileView
+          menuList={menuList}
+          cart={cart}
+          onAddToCart={handleAddToCart}
+          onRemoveFromCart={handleRemoveFromCart}
+          onRemoveEntirelyFromCart={handleRemoveEntirelyFromCart}
+          onUpdateCustomization={handleUpdateCustomization}
+          onClearCart={handleClearCart}
+          onAdminClick={() => {
+            navigateTo("/admin/dashboard");
+            setView("admin");
+          }}
+        />
+        <PWAInstallBanner />
+      </>
     );
   }
 
@@ -438,6 +452,9 @@ export default function App() {
         onUpdateCustomization={handleUpdateCustomization}
         onClearCart={handleClearCart}
       />
+
+      {/* Floating PWA Install Banner for Android & iOS */}
+      <PWAInstallBanner />
     </div>
   );
 }

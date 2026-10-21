@@ -31,6 +31,7 @@ import { OrderLifecycleService } from "../lib/orderLifecycle";
 import { RBACService } from "../lib/rbac";
 import { StaffMember } from "../types";
 import { parseCurrentRoute, buildAdminUrl, navigateTo, AdminTab, ReportsSubTab, MenuSubTab } from "../lib/router";
+import PWAInstallModal, { usePWAInstall } from "./PWAInstallModal";
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -43,6 +44,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>(() => initialRoute.adminTab);
   const [reportsSubTab, setReportsSubTab] = useState<ReportsSubTab>(() => initialRoute.reportsSubTab);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const pwaInstall = usePWAInstall();
 
   // Local sync states
   const [orders, setOrders] = useState<Order[]>([]);
@@ -787,7 +789,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
               items: parsedItems,
               subtotal: Number(rawNew.subtotal || 0),
               gst: Number(rawNew.gst || 0),
-              packagingCharge: (rawNew.order_type || "").toLowerCase() === "takeaway" ? 0 : Number(rawNew.packaging_charge || 0),
+              packagingCharge: Number(rawNew.packaging_charge || ((rawNew.order_type || "").toLowerCase() === "takeaway" ? 10 : 0)),
               discountAmount: Number(rawNew.discount_amount || 0),
               grandTotal: Number(rawNew.grand_total || 0),
               paymentStatus: rawNew.payment_status || "Pending",
@@ -1851,6 +1853,19 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
         {/* Diagnostic controls & audio alert toggle */}
         <div className="flex items-center gap-2 md:gap-3 text-xs font-mono">
+          {/* Install App on Android / iOS (PWA) */}
+          {!pwaInstall.isInstalled && (
+            <button
+              type="button"
+              onClick={pwaInstall.triggerInstall}
+              className="p-1.5 md:px-3 md:py-1.5 bg-gradient-to-r from-amber-600 to-[#C67C4E] hover:from-amber-700 hover:to-[#b06a3f] text-white rounded-lg transition-all flex items-center gap-1.5 cursor-pointer font-bold shadow-2xs"
+              title="Install WebRajya POS on Android or iOS"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Install App</span>
+            </button>
+          )}
+
           {/* Sound settings */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
@@ -1964,6 +1979,21 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                     <RefreshCw className={`w-4 h-4 ${isHardRefreshing ? "animate-spin" : ""}`} />
                     <span>HARD REFRESH</span>
                   </button>
+                  {!pwaInstall.isInstalled && (
+                    <button
+                      type="button"
+                      id="btn-mobile-install-app"
+                      onClick={() => {
+                        pwaInstall.triggerInstall();
+                        setIsMobileMenuOpen(false);
+                      }}
+                      title="Install WebRajya POS on Android or iOS Phone"
+                      className="p-2.5 rounded-xl border border-amber-300 bg-amber-500 text-white hover:bg-amber-600 flex flex-col items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs cursor-pointer col-span-2 sm:col-span-1"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>INSTALL APP</span>
+                    </button>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -4238,7 +4268,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                       </div>
                     </>
                   )}
-                  {selectedOrderDetails.packagingCharge > 0 && (selectedOrderDetails.orderType || "").toLowerCase() !== "takeaway" && (
+                  {selectedOrderDetails.packagingCharge > 0 && (
                     <div className="flex justify-between text-xs">
                       <span>Packaging Surcharge</span>
                       <span className="font-semibold text-stone-800 font-mono">₹{selectedOrderDetails.packagingCharge}</span>
@@ -4255,7 +4285,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                     <span className="text-[#C67C4E] font-mono">
                       ₹{settings.gstEnabled && selectedOrderDetails.gst > 0
                         ? selectedOrderDetails.grandTotal
-                        : Math.max(0, selectedOrderDetails.subtotal + ((selectedOrderDetails.orderType || "").toLowerCase() !== "takeaway" ? (selectedOrderDetails.packagingCharge || 0) : 0) - (selectedOrderDetails.discountAmount || 0))}
+                        : Math.max(0, selectedOrderDetails.subtotal + (selectedOrderDetails.packagingCharge || 0) - (selectedOrderDetails.discountAmount || 0))}
                     </span>
                   </div>
                 </div>
@@ -5736,6 +5766,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
           setCancelOrderTarget(null);
         }}
         operatorName={activeStaff?.name || "Admin"}
+      />
+
+      {/* PWA Install Modal for Android & iOS */}
+      <PWAInstallModal
+        isOpen={pwaInstall.modalOpen}
+        onClose={() => pwaInstall.setModalOpen(false)}
+        isIOS={pwaInstall.isIOS}
+        isAndroid={pwaInstall.isAndroid}
+        canPromptDirectly={pwaInstall.canPromptDirectly}
+        onNativeInstall={pwaInstall.triggerInstall}
       />
 
     </div>

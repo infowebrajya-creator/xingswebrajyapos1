@@ -256,17 +256,15 @@ export class PhysicalThermalPrinter {
     const subtotalVal = Number(data.subtotal ?? calculatedSubtotal);
     const discountVal = Number(data.discountAmount ?? data.discount ?? 0);
     const gstVal = Number(data.gst ?? data.totalGst ?? 0);
-    const packagingVal = isTakeaway ? 0 : Number(data.packagingCharge || 0);
-    const grandTotalVal = isTakeaway
-      ? Math.max(0, Math.round(subtotalVal - discountVal + gstVal))
-      : Number(data.grandTotal ?? Math.round(subtotalVal - discountVal + packagingVal + gstVal));
+    const packagingVal = Number(data.packagingCharge || 0);
+    const grandTotalVal = Number(data.grandTotal ?? Math.round(subtotalVal - discountVal + packagingVal + gstVal));
 
     if (is80) {
       lines.push({ text: "SUBTOTAL".padStart(32) + fmt(subtotalVal).padStart(8), align: "left" });
       if (discountVal > 0) {
         lines.push({ text: "DISCOUNT".padStart(32) + fmt(discountVal).padStart(8), align: "left" });
       }
-      if (!isTakeaway && packagingVal > 0) {
+      if (packagingVal > 0) {
         lines.push({ text: "PACKING CHARGES".padStart(32) + fmt(packagingVal).padStart(8), align: "left" });
       }
       if (gstVal > 0) {
@@ -279,7 +277,7 @@ export class PhysicalThermalPrinter {
       if (discountVal > 0) {
         lines.push({ text: "DISCOUNT".padStart(24) + fmt(discountVal).padStart(8), align: "left" });
       }
-      if (!isTakeaway && packagingVal > 0) {
+      if (packagingVal > 0) {
         lines.push({ text: "PACKING".padStart(24) + fmt(packagingVal).padStart(8), align: "left" });
       }
       if (gstVal > 0) {
@@ -589,12 +587,10 @@ export class PhysicalThermalPrinter {
     const subtotal = data.subtotal || 0;
     const discountAmount = data.discountAmount || 0;
     const coupon = data.appliedCoupon || "";
-    const packagingCharge = isTakeaway ? 0 : (data.packagingCharge || 0);
+    const packagingCharge = Number(data.packagingCharge || 0);
     const gst = data.gst || 0;
     const deliveryCharge = data.orderType === "delivery" ? (settings.deliveryCharges || 0) : 0;
-    const grandTotal = isTakeaway
-      ? Math.max(0, Math.round(subtotal - discountAmount + gst))
-      : (data.grandTotal || (subtotal - discountAmount + packagingCharge + gst + deliveryCharge));
+    const grandTotal = Number(data.grandTotal || (subtotal - discountAmount + packagingCharge + gst + deliveryCharge));
     const roundOff = (Math.round(grandTotal) - grandTotal).toFixed(2);
     const finalGrandTotal = Math.round(grandTotal);
     const totalQty = items.reduce((acc: number, it: any) => acc + (Number(it.quantity) || 1), 0);
@@ -2054,10 +2050,8 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
   const subtotalVal = Number(data.subtotal ?? calculatedSubtotal);
   const discountVal = Number(data.discountAmount ?? data.discount ?? 0);
   const gstVal = Number(data.gst ?? data.totalGst ?? 0);
-  const packagingVal = isTakeaway ? 0 : Number(data.packagingCharge || 0);
-  const grandTotalVal = isTakeaway
-    ? Math.max(0, Math.round(subtotalVal - discountVal + gstVal))
-    : Number(data.grandTotal ?? Math.round(subtotalVal - discountVal + packagingVal + gstVal));
+  const packagingVal = Number(data.packagingCharge || 0);
+  const grandTotalVal = Number(data.grandTotal ?? Math.round(subtotalVal - discountVal + packagingVal + gstVal));
 
   if (width === "80mm") {
     // 40 chars width
@@ -2069,7 +2063,7 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
       builder.writeText(discountRow + "\n");
     }
 
-    if (!isTakeaway && packagingVal > 0) {
+    if (packagingVal > 0) {
       const pkgRow = "PACKING CHARGES".padStart(32) + fmt(packagingVal).padStart(8);
       builder.writeText(pkgRow + "\n");
     }
@@ -2095,7 +2089,7 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
       builder.writeText(discountRow + "\n");
     }
 
-    if (!isTakeaway && packagingVal > 0) {
+    if (packagingVal > 0) {
       const pkgRow = "PACKING".padStart(24) + fmt(packagingVal).padStart(8);
       builder.writeText(pkgRow + "\n");
     }

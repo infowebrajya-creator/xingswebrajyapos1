@@ -26,6 +26,7 @@ import {
   ThumbsUp,
   Info,
   Trash2,
+  Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { MenuItem, CartItem, Category } from "../types";
@@ -33,6 +34,7 @@ import { categories as defaultCategories } from "../data";
 import { LocalDB, Order } from "../lib/db";
 import { getScannedTableNumber } from "../lib/router";
 import TableFloorplan from "./TableFloorplan";
+import PWAInstallModal, { usePWAInstall } from "./PWAInstallModal";
 
 interface MobileViewProps {
   menuList: MenuItem[];
@@ -59,6 +61,7 @@ export default function MobileView({
   const [activeTab, setActiveTab] = useState<
     "home" | "menu" | "search" | "cart" | "contact"
   >(() => (getScannedTableNumber() ? "menu" : "home"));
+  const pwaInstall = usePWAInstall();
 
   // Searching & Filtering States
   const [searchQuery, setSearchQuery] = useState("");
@@ -208,7 +211,7 @@ export default function MobileView({
   );
   const settings = LocalDB.getSettings();
   const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Math.round(subtotal * (settings.gstRate / 100)) : 0;
-  const packagingCharge = orderType === "dine-in" || orderType === "takeaway" ? 0 : 25;
+  const packagingCharge = orderType === "takeaway" ? 10 : (orderType === "delivery" ? 25 : 0);
   const grandTotal = subtotal + gst + packagingCharge;
 
   const chefSpecialsList = useMemo(() => {
@@ -491,6 +494,17 @@ export default function MobileView({
                   <Clock className="w-3 h-3 text-[#d4af37]" />
                   <span>Fresh Dine-In</span>
                 </div>
+                {!pwaInstall.isInstalled && (
+                  <button
+                    type="button"
+                    onClick={pwaInstall.triggerInstall}
+                    className="bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-lg cursor-pointer transition-transform active:scale-95"
+                    title="Install WebRajya App on Android / iOS Phone"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Install App</span>
+                  </button>
+                )}
               </div>
 
               {/* Logo icon representation */}
@@ -1728,6 +1742,16 @@ export default function MobileView({
           </div>
         )}
       </AnimatePresence>
+
+      {/* PWA Install Modal for Android & iOS */}
+      <PWAInstallModal
+        isOpen={pwaInstall.modalOpen}
+        onClose={() => pwaInstall.setModalOpen(false)}
+        isIOS={pwaInstall.isIOS}
+        isAndroid={pwaInstall.isAndroid}
+        canPromptDirectly={pwaInstall.canPromptDirectly}
+        onNativeInstall={pwaInstall.triggerInstall}
+      />
     </div>
   );
 }

@@ -28,9 +28,13 @@ function debugLog(...args: any[]) {
 
 export function normalizeTableNumber(num?: string | number): string {
   if (!num && num !== 0) return "";
-  return String(num)
-    .trim()
-    .toUpperCase()
+  const s = String(num).trim().toUpperCase();
+  // Handle Parcel tables: P1, P01, Parcel 1, Parcel #1, etc.
+  if (/^(PARCEL|P)[\s#-]*\d+$/i.test(s)) {
+    const digits = s.replace(/^(PARCEL|P)[\s#-]*0*/i, "");
+    return `P${digits || "0"}`;
+  }
+  return s
     .replace(/^TABLE\s*#?/i, "")
     .replace(/^T0*/i, "")
     .replace(/^0+/, "");
@@ -353,7 +357,7 @@ export function stringToNumericId(str: string): number {
   return Math.abs(hash) % 9007199254740991; // Safe inside JS 53-bit float and Postgres bigint
 }
 
-// 6 Standard Deployed Dining Tables for Restaurant POS & QR Self-Ordering
+// Standard Deployed Dining Tables and 3 Parcel Tables for Restaurant POS & QR Self-Ordering
 export const DEFAULT_DEPLOYED_TABLES: RestaurantTable[] = [
   {
     id: "tbl-01",
@@ -395,6 +399,27 @@ export const DEFAULT_DEPLOYED_TABLES: RestaurantTable[] = [
     tableNumber: "06",
     capacity: 2,
     seatingArea: "Main Dining Hall",
+    status: "Available"
+  },
+  {
+    id: "tbl-p01",
+    tableNumber: "P1",
+    capacity: 1,
+    seatingArea: "Parcel / Takeaway",
+    status: "Available"
+  },
+  {
+    id: "tbl-p02",
+    tableNumber: "P2",
+    capacity: 1,
+    seatingArea: "Parcel / Takeaway",
+    status: "Available"
+  },
+  {
+    id: "tbl-p03",
+    tableNumber: "P3",
+    capacity: 1,
+    seatingArea: "Parcel / Takeaway",
     status: "Available"
   }
 ];
@@ -488,27 +513,42 @@ export class LocalDB {
 
   static getTables(): RestaurantTable[] {
     const stored = localStorage.getItem("ij_tables");
+    let tables: RestaurantTable[] = [];
     if (!stored) {
-      this.saveTables(DEFAULT_DEPLOYED_TABLES);
-      return [...DEFAULT_DEPLOYED_TABLES];
+      tables = [...DEFAULT_DEPLOYED_TABLES];
+      this.saveTables(tables);
+      return tables;
     }
     try {
       const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        this.saveTables(DEFAULT_DEPLOYED_TABLES);
-        return [...DEFAULT_DEPLOYED_TABLES];
-      }
-      return parsed;
+      tables = (Array.isArray(parsed) && parsed.length > 0) ? parsed : [...DEFAULT_DEPLOYED_TABLES];
     } catch {
-      this.saveTables(DEFAULT_DEPLOYED_TABLES);
-      return [...DEFAULT_DEPLOYED_TABLES];
+      tables = [...DEFAULT_DEPLOYED_TABLES];
     }
+
+    // Ensure 3 standard parcel tables are always present after dining tables
+    const hasP1 = tables.some(t => isSameTable(t.tableNumber, "P1"));
+    const hasP2 = tables.some(t => isSameTable(t.tableNumber, "P2"));
+    const hasP3 = tables.some(t => isSameTable(t.tableNumber, "P3"));
+
+    if (!hasP1 || !hasP2 || !hasP3) {
+      const parcelTablesToAdd: RestaurantTable[] = [];
+      if (!hasP1) parcelTablesToAdd.push({ id: "tbl-p01", tableNumber: "P1", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+      if (!hasP2) parcelTablesToAdd.push({ id: "tbl-p02", tableNumber: "P2", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+      if (!hasP3) parcelTablesToAdd.push({ id: "tbl-p03", tableNumber: "P3", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+      tables = [...tables, ...parcelTablesToAdd];
+      this.saveTables(tables);
+    }
+
+    return tables;
   }
 
   static deployDefaultTables(count: number = 6): RestaurantTable[] {
-    const tablesToDeploy = DEFAULT_DEPLOYED_TABLES.slice(0, count);
+    const diningToDeploy = DEFAULT_DEPLOYED_TABLES.filter(t => !String(t.tableNumber).toUpperCase().startsWith("P")).slice(0, count);
+    const parcelToDeploy = DEFAULT_DEPLOYED_TABLES.filter(t => String(t.tableNumber).toUpperCase().startsWith("P"));
+    const tablesToDeploy = [...diningToDeploy, ...parcelToDeploy];
     this.saveTables(tablesToDeploy);
-    this.addAuditLog("Tables Deployed", `Deployed ${tablesToDeploy.length} dining tables (Table 01 - Table 0${tablesToDeploy.length}) with QR self-ordering support.`, "Admin System");
+    this.addAuditLog("Tables Deployed", `Deployed ${diningToDeploy.length} dining tables and ${parcelToDeploy.length} parcel tables.`, "Admin System");
     return tablesToDeploy;
   }
 
@@ -520,7 +560,7 @@ export class LocalDB {
 
 
   static addOrder(order: Omit<Order, "id" | "createdAt">): Order {
-    if (order.orderType === "dine-in" && order.tableNumber) {
+    if (order.tableNumber) {
       const activeOrder = this.getActiveOrderForTable(order.tableNumber);
       if (activeOrder) {
         const orders = this.getOrders();
@@ -554,7 +594,8 @@ export class LocalDB {
           const subtotal = combinedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
           const settings = this.getSettings();
           const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Math.round(subtotal * (settings.gstRate / 100)) : 0;
-          const packagingCharge = 0;
+          const isParcel = (activeOrder.orderType || "").toLowerCase() === "takeaway" || String(activeOrder.tableNumber || "").toUpperCase().startsWith("P");
+          const packagingCharge = isParcel ? 10 : Number(activeOrder.packagingCharge || 0);
           
           let discountAmount = activeOrder.discountAmount || 0;
           if (activeOrder.appliedCoupon) {
@@ -685,14 +726,12 @@ export class LocalDB {
       { event: "Order Created", timestamp: new Date().toISOString(), details: `Initial order created with ${order.items.length} items.` }
     ];
 
-    const isTakeaway = (order.orderType || "").toLowerCase() === "takeaway";
+    const isTakeaway = (order.orderType || "").toLowerCase() === "takeaway" || String(order.tableNumber || "").toUpperCase().startsWith("P");
     const subtotal = Number(order.subtotal || 0);
     const discountAmount = Number(order.discountAmount || 0);
     const gst = Number(order.gst || 0);
-    const packagingCharge = isTakeaway ? 0 : Number(order.packagingCharge || 0);
-    const grandTotal = isTakeaway
-      ? Math.max(0, Math.round(subtotal - discountAmount + gst))
-      : Number(order.grandTotal ?? Math.round(subtotal - discountAmount + gst + packagingCharge));
+    const packagingCharge = isTakeaway ? 10 : Number(order.packagingCharge || 0);
+    const grandTotal = Number(order.grandTotal ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
 
     const fullOrder: Order = {
       ...order,
@@ -966,16 +1005,12 @@ export class LocalDB {
           : (item.order_type === "dine-in" ? "Table QR" : undefined);
 
         const settings = this.getSettings();
-        const isTakeaway = (item.order_type || "").toLowerCase() === "takeaway";
+        const isTakeaway = (item.order_type || "").toLowerCase() === "takeaway" || String(item.table_number || "").toUpperCase().startsWith("P");
         const subtotal = Number(item.subtotal || 0);
         const discountAmount = Number(item.discount_amount || 0);
-        const packagingCharge = isTakeaway ? 0 : Number(item.packaging_charge || 0);
+        const packagingCharge = Number(item.packaging_charge ?? (isTakeaway ? 10 : 0));
         const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Number(item.gst || 0) : 0;
-        const grandTotal = (!settings.gstEnabled || Number(settings.gstRate || 0) === 0)
-          ? Math.max(0, Math.round(subtotal - discountAmount + packagingCharge))
-          : (isTakeaway
-            ? Math.max(0, Math.round(subtotal - discountAmount + gst))
-            : Number(item.grand_total || 0));
+        const grandTotal = Number(item.grand_total ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
 
         mapped.push({
           id: item.id,
@@ -1020,7 +1055,6 @@ export class LocalDB {
     const orders = this.getOrders();
     if (!tableNumber) return undefined;
     return orders.find(o => 
-      o.orderType === "dine-in" && 
       isSameTable(o.tableNumber, tableNumber) && 
       o.orderStatus !== "Cancelled" &&
       o.orderStatus !== "Completed" &&
@@ -1632,14 +1666,12 @@ export class LocalDB {
     const activeShift = this.getActiveShift();
     const effectiveShiftId = (order as any).shiftId || activeShift?.id;
 
-    const isTakeaway = (order.orderType || "").toLowerCase() === "takeaway";
+    const isTakeaway = (order.orderType || "").toLowerCase() === "takeaway" || String(order.tableNumber || "").toUpperCase().startsWith("P");
     const subtotal = Number(order.subtotal || 0);
     const discountAmount = Number(order.discountAmount || 0);
     const gst = Number(order.gst || 0);
-    const packagingCharge = isTakeaway ? 0 : Number(order.packagingCharge || 0);
-    const grandTotal = isTakeaway
-      ? Math.max(0, Math.round(subtotal - discountAmount + gst))
-      : Number(order.grandTotal ?? Math.round(subtotal - discountAmount + gst + packagingCharge));
+    const packagingCharge = Number(order.packagingCharge ?? (isTakeaway ? 10 : 0));
+    const grandTotal = Number(order.grandTotal ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
 
     const fullOrder: Order = {
       ...order,
