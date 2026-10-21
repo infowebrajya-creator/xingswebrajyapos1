@@ -1080,6 +1080,44 @@ export default function PosBillingPortal({
       setAppliedCoupon(null);
       setCouponCode("");
 
+      // 1-TAP SILENT THERMAL PRINTING IN WINDOWS ELECTRON DESKTOP (ZERO DIALOGS, ZERO JSPRINTMANAGER)
+      if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+        try {
+          PhysicalThermalPrinter.printBillSystemFallback(finalOrder, settings, "80mm");
+          await LocalDB.apiUpdateOrderPrintStatus(finalOrder.id, "bill", "Printed");
+
+          if (finalOrder.orderType !== "dine-in") {
+            const finalKotData = {
+              id: `KOT-${finalOrder.id}`,
+              kotNumber: `KOT-${finalOrder.id}`,
+              kotTitle: "FINAL KOT",
+              orderId: finalOrder.id,
+              tableNumber: finalOrder.tableNumber,
+              orderType: finalOrder.orderType,
+              customerName: finalOrder.customerName,
+              phoneNumber: finalOrder.phoneNumber,
+              createdAt: finalOrder.createdAt,
+              items: finalOrder.items,
+              specialInstructions: "FINAL KOT | COMPLETE SESSION ORDER"
+            };
+            setTimeout(() => {
+              PhysicalThermalPrinter.printSystemFallback(finalKotData as any, "80mm");
+            }, 800);
+            await LocalDB.apiUpdateOrderPrintStatus(finalOrder.id, "kot", "Printed");
+          }
+
+          setPrintNotice({
+            type: "success",
+            message: `Bill #${finalOrder.id} printed silently to thermal printer.`,
+            order: finalOrder
+          });
+          setTimeout(() => setPrintNotice(null), 4000);
+          return;
+        } catch (e: any) {
+          console.error("[Electron Silent Print Error]", e);
+        }
+      }
+
       // DIRECT THERMAL PRINTING VIA JSPRINTMANAGER (CUSTOMER BILL)
       try {
         let isConnected = JSPrintManagerService.isConnected();
@@ -1314,6 +1352,19 @@ export default function PosBillingPortal({
         onOrderPlaced();
       }
 
+      // 1-TAP SILENT THERMAL KOT IN WINDOWS ELECTRON DESKTOP (ZERO DIALOGS, ZERO JSPRINTMANAGER)
+      if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+        PhysicalThermalPrinter.printSystemFallback(kotData as any, "80mm");
+        setJustPrintedKOT(true);
+        setTimeout(() => setJustPrintedKOT(false), 3000);
+        setPrintNotice({
+          type: "success",
+          message: `${hasSentBefore && !isReprint ? "Add-On " : isReprint ? "Re-Print " : ""}KOT #${kotNumber} printed silently to kitchen printer.`,
+        });
+        setTimeout(() => setPrintNotice(null), 4000);
+        return;
+      }
+
       let isConnected = JSPrintManagerService.isConnected();
       if (!isConnected) {
         isConnected = await JSPrintManagerService.init();
@@ -1325,7 +1376,9 @@ export default function PosBillingPortal({
         setTimeout(() => setJustPrintedKOT(false), 3000);
         setPrintNotice({
           type: "success",
-        }, 5000);
+          message: `${hasSentBefore && !isReprint ? "Add-On " : isReprint ? "Re-Print " : ""}KOT #${kotNumber} printed successfully via JSPrintManager.`,
+        });
+        setTimeout(() => setPrintNotice(null), 5000);
       } else {
         setPrintNotice({
           type: "warning",
@@ -1350,6 +1403,25 @@ export default function PosBillingPortal({
   // Retry direct thermal print handler for notification banner (100% inline, no navigation, no alert)
   const handleRetryPrint = async (order: Order) => {
     try {
+      if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+        PhysicalThermalPrinter.printBillSystemFallback(order, settings, "80mm");
+        await LocalDB.apiUpdateOrderPrintStatus(order.id, "bill", "Printed");
+        if (order.orderType !== "dine-in") {
+          const finalKotData = PhysicalThermalPrinter.buildKOTDataFromOrder(order);
+          setTimeout(() => {
+            PhysicalThermalPrinter.printSystemFallback(finalKotData as any, "80mm");
+          }, 800);
+          await LocalDB.apiUpdateOrderPrintStatus(order.id, "kot", "Printed");
+        }
+        setPrintNotice({
+          type: "success",
+          message: `Bill #${order.id} printed silently to thermal printer.`,
+          order
+        });
+        setTimeout(() => setPrintNotice(null), 4000);
+        return;
+      }
+
       if (order.orderType === "dine-in") {
         await JSPrintManagerService.printBill(order, settings);
         await LocalDB.apiUpdateOrderPrintStatus(order.id, "bill", "Printed");

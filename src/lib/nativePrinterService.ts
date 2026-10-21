@@ -11,9 +11,13 @@ export class NativePrinterOfflineError extends Error {
 export class NativePrinterService {
   /**
    * Check if JSPrintManager service is available in browser
+   * (Returns false in Electron desktop mode so native Electron spooler is utilized)
    */
   public static isAvailable(): boolean {
-    return typeof window !== "undefined";
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron) {
+      return false;
+    }
+    return typeof window !== "undefined" && JSPrintManagerService.getStatus().isConnected;
   }
 
   /**

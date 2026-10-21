@@ -1669,6 +1669,12 @@ export class PhysicalThermalPrinter {
     mode: "usb" | "serial" | "fallback" | "native" = "native",
     cashierName: string = "Cashier"
   ): Promise<boolean> {
+    // 1-TAP SILENT WINDOWS DESKTOP PRINT (ELECTRON) - ZERO DIALOGS & ZERO JSPRINTMANAGER REQUIRED!
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+      this.printSystemFallback(kot, width, cashierName);
+      return true;
+    }
+
     const pSettings = getWRPrinterSettings();
     if (NativePrinterService.isAvailable()) {
       const hex = buildKOTESCPOS(kot, pSettings);
@@ -1719,6 +1725,12 @@ export class PhysicalThermalPrinter {
     width: "58mm" | "80mm" = "80mm",
     mode: "usb" | "serial" | "fallback" | "native" = "native"
   ): Promise<boolean> {
+    // 1-TAP SILENT WINDOWS DESKTOP PRINT (ELECTRON) - ZERO DIALOGS & ZERO JSPRINTMANAGER REQUIRED!
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+      this.printBillSystemFallback(order, settings, width);
+      return true;
+    }
+
     const pSettings = getWRPrinterSettings();
     if (NativePrinterService.isAvailable()) {
       const hex = buildBillESCPOS(order, settings, pSettings);
@@ -1789,6 +1801,14 @@ export class PhysicalThermalPrinter {
   ): Promise<boolean> {
     const pSettings = getWRPrinterSettings();
     const kotData = this.buildKOTDataFromOrder(order);
+
+    // 1-TAP SILENT WINDOWS DESKTOP PRINT (ELECTRON) - ZERO DIALOGS & ZERO JSPRINTMANAGER REQUIRED!
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+      this.printBillSystemFallback(order, settings, pSettings.paperWidth);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      this.printSystemFallback(kotData, pSettings.paperWidth);
+      return true;
+    }
 
     if (NativePrinterService.isAvailable()) {
       const billHex = buildBillESCPOS(order, settings, pSettings);

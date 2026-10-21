@@ -125,9 +125,14 @@ ipcMain.handle("silent-print", async (_, options: {
     const finish = (result: any) => {
       if (!isResolved) {
         isResolved = true;
-        try {
-          printWorker.destroy();
-        } catch (e) {}
+        // Keep worker alive for 600ms so Windows spooler completely accepts the print job
+        setTimeout(() => {
+          try {
+            if (!printWorker.isDestroyed()) {
+              printWorker.destroy();
+            }
+          } catch (e) {}
+        }, 600);
         resolve(result);
       }
     };
@@ -143,16 +148,48 @@ ipcMain.handle("silent-print", async (_, options: {
 
     printWorker.webContents.on("did-finish-load", async () => {
       try {
-        let targetPrinter = printerName?.trim();
-
-        // If target is missing or "Default", look up default Windows printer
+        const requestedPrinter = printerName?.trim();
         const printers = await printWorker.webContents.getPrintersAsync();
-        if (!targetPrinter || targetPrinter.toLowerCase() === "default") {
-          const defaultP = printers.find((p) => p.isDefault) || printers[0];
-          if (defaultP) {
-            targetPrinter = defaultP.name;
-          }
+
+        // Smart Printer Resolution:
+        // 1. Exact match (case insensitive)
+        let matchedPrinter = printers.find((p) => p.name.toLowerCase() === requestedPrinter?.toLowerCase());
+
+        // 2. Fuzzy match (ignoring whitespace and special symbols)
+        if (!matchedPrinter && requestedPrinter) {
+          const cleanReq = requestedPrinter.toLowerCase().replace(/[^a-z0-9]/g, "");
+          matchedPrinter = printers.find((p) => {
+            const cleanName = p.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+            return cleanName.includes(cleanReq) || cleanReq.includes(cleanName);
+          });
         }
+
+        // 3. Fallback to Windows default printer
+        if (!matchedPrinter) {
+          matchedPrinter = printers.find((p) => p.isDefault) || printers[0];
+        }
+
+        const targetPrinter = matchedPrinter ? matchedPrinter.name : undefined;
+
+        // Dynamically measure receipt content height to prevent feeding empty white paper roll!
+        let contentHeightPx = 600;
+        try {
+          contentHeightPx = await printWorker.webContents.executeJavaScript(`
+            Math.max(
+              document.body.scrollHeight || 0,
+              document.documentElement.scrollHeight || 0,
+              document.body.offsetHeight || 0,
+              document.documentElement.offsetHeight || 0,
+              250
+            )
+          `);
+        } catch (_) {
+          contentHeightPx = 600;
+        }
+
+        // Convert px to microns (1px ≈ 264.58 microns at 96 DPI), add 12mm buffer for cutter blade clearance
+        const calculatedHeightMicrons = Math.max(45000, Math.ceil(contentHeightPx * 265) + 12000);
+        const paperWidthMicrons = paperWidthMm === 58 ? 58000 : 80000;
 
         const printOpts: any = {
           silent: silent !== false, // TRUE: zero Windows dialogs, instant physical print!
@@ -161,19 +198,16 @@ ipcMain.handle("silent-print", async (_, options: {
           color: false,
           margins: { marginType: "none" },
           copies: Math.max(1, copies || 1),
+          pageSize: {
+            width: paperWidthMicrons,
+            height: calculatedHeightMicrons,
+          },
         };
-
-        // Custom thermal paper roll size in microns
-        if (paperWidthMm === 58) {
-          printOpts.pageSize = { width: 58000, height: 297000 };
-        } else {
-          printOpts.pageSize = { width: 80000, height: 297000 };
-        }
 
         printWorker.webContents.print(printOpts, (success, failureReason) => {
           clearTimeout(timeoutTimer);
           if (success) {
-            console.log(`[Electron Main] Silent print completed successfully on: ${targetPrinter}`);
+            console.log(`[Electron Main] Silent print completed successfully on: "${targetPrinter}" (Height: ${calculatedHeightMicrons}µm)`);
             finish({
               success: true,
               printerUsed: targetPrinter,
