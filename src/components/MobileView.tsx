@@ -1743,14 +1743,15 @@ export default function MobileView({
         )}
       </AnimatePresence>
 
-      {/* PWA Install Modal for Android & iOS */}
+      {/* PWA & Windows Desktop Install Modal */}
       <PWAInstallModal
         isOpen={pwaInstall.modalOpen}
         onClose={() => pwaInstall.setModalOpen(false)}
         isIOS={pwaInstall.isIOS}
         isAndroid={pwaInstall.isAndroid}
         canPromptDirectly={pwaInstall.canPromptDirectly}
-        onNativeInstall={pwaInstall.triggerInstall}
+        initialTab={pwaInstall.modalTab}
+        onNativeInstall={() => pwaInstall.triggerInstall("mobile")}
       />
     </div>
   );

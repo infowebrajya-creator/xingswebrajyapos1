@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
 async function startServer() {
@@ -61,6 +62,19 @@ async function startServer() {
         error: "Critical failure during health evaluation"
       });
     }
+  });
+
+  // Windows Installer Download Service & Redirect
+  app.get(["/download/windows", "/api/download/windows", "/download"], (req, res) => {
+    const localInstaller = path.join(process.cwd(), "public", "installer", "WEBRAJYA-POS-Setup.exe");
+    const distInstaller = path.join(process.cwd(), "dist_electron", "WEBRAJYA-POS-Setup.exe");
+    if (fs.existsSync(localInstaller)) {
+      return res.download(localInstaller, "WEBRAJYA-POS-Setup.exe");
+    }
+    if (fs.existsSync(distInstaller)) {
+      return res.download(distInstaller, "WEBRAJYA-POS-Setup.exe");
+    }
+    return res.redirect("https://github.com/infowebrajya-creator/xingswebrajyapos1/releases/latest/download/WEBRAJYA-POS-Setup.exe");
   });
 
   // Vite Integration & Static Asset Serving

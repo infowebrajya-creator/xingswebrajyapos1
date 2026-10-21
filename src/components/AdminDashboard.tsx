@@ -1853,16 +1853,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
         {/* Diagnostic controls & audio alert toggle */}
         <div className="flex items-center gap-2 md:gap-3 text-xs font-mono">
-          {/* Install App on Android / iOS (PWA) */}
+          {/* Install App / Download Windows App */}
           {!pwaInstall.isInstalled && (
             <button
               type="button"
-              onClick={pwaInstall.triggerInstall}
+              onClick={() => pwaInstall.triggerInstall(pwaInstall.isDesktop ? "windows" : "mobile")}
               className="p-1.5 md:px-3 md:py-1.5 bg-gradient-to-r from-amber-600 to-[#C67C4E] hover:from-amber-700 hover:to-[#b06a3f] text-white rounded-lg transition-all flex items-center gap-1.5 cursor-pointer font-bold shadow-2xs"
-              title="Install WebRajya POS on Android or iOS"
+              title={pwaInstall.isDesktop ? "Download WebRajya Windows App (.exe) or Install" : "Install WebRajya POS on Android or iOS"}
             >
               <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Install App</span>
+              <span className="hidden sm:inline">{pwaInstall.isDesktop ? "Download App (.exe)" : "Install App"}</span>
             </button>
           )}
 
@@ -5768,14 +5768,15 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         operatorName={activeStaff?.name || "Admin"}
       />
 
-      {/* PWA Install Modal for Android & iOS */}
+      {/* PWA & Windows Desktop Install Modal */}
       <PWAInstallModal
         isOpen={pwaInstall.modalOpen}
         onClose={() => pwaInstall.setModalOpen(false)}
         isIOS={pwaInstall.isIOS}
         isAndroid={pwaInstall.isAndroid}
         canPromptDirectly={pwaInstall.canPromptDirectly}
-        onNativeInstall={pwaInstall.triggerInstall}
+        initialTab={pwaInstall.modalTab}
+        onNativeInstall={() => pwaInstall.triggerInstall("mobile")}
       />
 
     </div>

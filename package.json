@@ -30,7 +30,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "WEBRAJYA POS"
+      "shortcutName": "WEBRAJYA POS",
+      "artifactName": "WEBRAJYA-POS-Setup.${ext}"
     }
   },
   "dependencies": {

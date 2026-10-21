@@ -1,4 +1,4 @@
-import { Phone, Mail, MapPin, Clock, ChevronUp } from "lucide-react";
+import { Phone, Mail, MapPin, Clock, ChevronUp, Download } from "lucide-react";
 
 export default function Footer({ onAdminClick }: { onAdminClick?: () => void }) {
   const scrollToTop = () => {
@@ -41,12 +41,24 @@ export default function Footer({ onAdminClick }: { onAdminClick?: () => void }) 
 
         {/* Bottom Credits strip & Back to top button */}
         <div className="pt-8 border-t border-stone-900/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500 font-sans tracking-wide">
-          <div className="flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left">
+          <div className="flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left flex-wrap">
             <span>
               &copy; {new Date().getFullYear()} THE XINGS KITCHEN. All Rights Reserved.
             </span>
+            <span className="inline-flex items-center gap-1.5 ml-1">
+              <span className="text-stone-800">|</span>
+              <a
+                href="/download/windows"
+                download="WEBRAJYA-POS-Setup.exe"
+                className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500 border border-amber-500/20 hover:border-transparent text-[10px] text-amber-400 hover:text-black font-semibold rounded transition-all cursor-pointer inline-flex items-center gap-1"
+                title="Download WebRajya Windows App (.exe) for silent printing"
+              >
+                <Download className="w-3 h-3" />
+                <span>Windows App (.exe)</span>
+              </a>
+            </span>
             {onAdminClick && (
-              <span className="inline-flex items-center gap-1.5 ml-2">
+              <span className="inline-flex items-center gap-1.5 ml-1">
                 <span className="text-stone-800">|</span>
                 <button
                   type="button"

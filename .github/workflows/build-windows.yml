@@ -1,0 +1,64 @@
+name: Build Windows Desktop App
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Web Application & Electron Bundles
+        run: npm run build
+
+      - name: Package Windows Installer (.exe)
+        run: npx electron-builder --win nsis
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WEBRAJYA-POS-Windows-Installer
+          path: dist_electron/*.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        with:
+          tag_name: v1.0.0
+          name: "WebRajya POS Windows Desktop Edition v1.0.0"
+          body: |
+            ## 🪟 WebRajya POS - Windows Desktop Edition (.exe)
+            
+            ### ✨ Features:
+            - **1-Tap Silent Thermal Printing**: Immediate background printing with zero Chrome dialogs or print preview prompts.
+            - **Hardware ESC/POS Auto-Cut**: Automatic receipt cut on EPSON, TVS, Everycom, POS-80/58 printers.
+            - **Offline-Ready Billing**: Operates smoothly even if internet fluctuates.
+            
+            ### 📥 Download & Install:
+            Download **`WEBRAJYA-POS-Setup.exe`** below and run the setup.
+          files: dist_electron/*.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

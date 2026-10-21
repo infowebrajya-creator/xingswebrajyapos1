@@ -20,7 +20,8 @@ import {
   Zap,
   Info,
   Layers,
-  FileCode
+  FileCode,
+  Download
 } from "lucide-react";
 import { PrintQueueManager, PrintJob, PrintHistoryLog } from "../lib/printQueueManager";
 import { JSPrintManagerService, JSPMStatusInfo } from "../lib/jsprintmanagerService";
@@ -242,6 +243,40 @@ export default function PrintersConfigTab() {
           </button>
         </div>
       </div>
+
+      {/* Windows Native Silent Printing Callout Banner (when running in web browser) */}
+      {!isElectron && (
+        <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-amber-950 text-white border border-stone-800 rounded-2xl p-4 sm:p-5 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="p-3 bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded-xl shrink-0 mt-0.5">
+              <Download className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded">
+                  Windows App (.exe) Available
+                </span>
+                <span className="text-xs text-emerald-400 font-bold flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> 1-Tap Silent Thermal Printing
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-white mt-1">Want Zero Print Dialogs & Instant Paper Cut?</h3>
+              <p className="text-xs text-stone-300 mt-0.5 max-w-xl">
+                Install the WebRajya Windows Desktop App on your billing counter laptop. Communicates directly with EPSON, TVS, Everycom & POS-80 printers without browser popups or third-party SSL tools.
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="/download/windows"
+            download="WEBRAJYA-POS-Setup.exe"
+            className="shrink-0 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-[#C67C4E] hover:from-amber-700 hover:to-[#b06a3f] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-amber-200" />
+            <span>Download Windows App (.exe)</span>
+          </a>
+        </div>
+      )}
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Shield, Mail, Lock, Eye, EyeOff, Sparkles, KeyRound, AlertCircle, HelpCircle } from "lucide-react";
+import { Shield, Mail, Lock, Eye, EyeOff, Sparkles, KeyRound, AlertCircle, HelpCircle, Download, Monitor } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LocalDB } from "../lib/db";
+import PWAInstallModal from "./PWAInstallModal";
 
 interface AdminLoginProps {
   onLoginSuccess: (token: string, rememberMe: boolean) => void;
@@ -16,6 +17,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [recoverySuccess, setRecoverySuccess] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   // Pre-fill email if remembered
   useEffect(() => {
@@ -210,6 +212,21 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             <span className="text-[#aa7c11]">admin@webrajya.com</span> / <span className="text-stone-600 font-bold">admin123</span>
           </p>
         </div>
+
+        {/* Windows Desktop & Mobile App Installer Link */}
+        <div className="mt-4 pt-3 border-t border-stone-100 flex flex-col items-center justify-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowInstallModal(true)}
+            className="inline-flex items-center gap-2 text-xs font-bold text-stone-700 hover:text-stone-950 bg-stone-50 hover:bg-stone-100 border border-stone-200 px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-2xs"
+          >
+            <Download className="w-3.5 h-3.5 text-[#aa7c11]" />
+            <span>Download Windows POS App (.exe)</span>
+          </button>
+          <span className="text-[10px] text-stone-400 font-sans">
+            Built-in 1-Tap Silent Thermal Printing (Zero Dialogs)
+          </span>
+        </div>
       </motion.div>
 
       {/* Forgot Password modal */}
@@ -289,6 +306,13 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
           </>
         )}
       </AnimatePresence>
+
+      {/* Windows & Mobile Install Modal */}
+      <PWAInstallModal
+        isOpen={showInstallModal}
+        onClose={() => setShowInstallModal(false)}
+        initialTab="windows"
+      />
     </div>
   );
 }

@@ -23,6 +23,18 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/download/windows",
+      "destination": "https://github.com/infowebrajya-creator/xingswebrajyapos1/releases/latest/download/WEBRAJYA-POS-Setup.exe",
+      "permanent": false
+    },
+    {
+      "source": "/download",
+      "destination": "https://github.com/infowebrajya-creator/xingswebrajyapos1/releases/latest/download/WEBRAJYA-POS-Setup.exe",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/" }
   ]
