@@ -29,9 +29,12 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "WEBRAJYA POS",
-      "artifactName": "WEBRAJYA-POS-Setup.${ext}"
+      "artifactName": "WEBRAJYA-POS-Setup.${ext}",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true
     }
   },
   "dependencies": {
