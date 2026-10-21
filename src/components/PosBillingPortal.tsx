@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Plus, Search, Calculator, Shield, ShieldAlert,
   Trash2, Edit3, ClipboardList, CheckCircle, FileText, ShoppingCart,
   Percent, ArrowRight, User, Phone, MapPin, Sparkles, Hash, Layers,
   Printer, AlertCircle, RefreshCw, X, ArrowRightLeft, Receipt, Loader2, CheckCircle2,
-  MessageCircle, UtensilsCrossed, Users, MessageSquare
+  MessageCircle, UtensilsCrossed, Users, MessageSquare, ChevronLeft, ChevronRight, Flame, Filter,
+  Zap, LayoutGrid, CornerDownLeft
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LocalDB, Order, Coupon, InventoryItem, AuditLog, RestaurantSettings, isSameTable } from "../lib/db";
@@ -84,21 +85,106 @@ export default function PosBillingPortal({
   const [paxCount, setPaxCount] = useState<number>(1);
   const [orderInstructions, setOrderInstructions] = useState<string>("");
 
+  // Table Rail Collapsible State (Auto-collapsed in Takeaway/Delivery)
+  const [isTablePanelCollapsed, setIsTablePanelCollapsed] = useState<boolean>(false);
+
+  // Quick Catalog Filter States
+  const [filterVegOnly, setFilterVegOnly] = useState<boolean>(false);
+  const [filterBestsellerOnly, setFilterBestsellerOnly] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("All");
+
+  // Register View Mode: "search" (Default: High-speed search & add command center) vs "grid" (Visual cards)
+  const [posViewMode, setPosViewMode] = useState<"search" | "grid">("search");
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(0);
+
+  // Reset highlightedIndex when search query changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchQuery]);
+
+  // Parse query and optional quantity (e.g. "chilli*2" or "chilli 2")
+  const parseSearchInput = (input: string) => {
+    let cleanText = input.trim();
+    let qty = 1;
+    const multiplyMatch = cleanText.match(/^(.+?)\s*[*xX]\s*(\d+)$/);
+    if (multiplyMatch) {
+      cleanText = multiplyMatch[1].trim();
+      qty = parseInt(multiplyMatch[2], 10) || 1;
+    } else {
+      const trailingNumberMatch = cleanText.match(/^([a-zA-Z\s]+?)\s+(\d+)$/);
+      if (trailingNumberMatch) {
+        cleanText = trailingNumberMatch[1].trim();
+        qty = parseInt(trailingNumberMatch[2], 10) || 1;
+      }
+    }
+    return { query: cleanText, qty };
+  };
+
+  // Speed search results (Live fuzzy matching for high-speed adding)
+  const speedSearchResults = useMemo(() => {
+    const { query } = parseSearchInput(searchQuery);
+    if (!query) {
+      // If search is empty, return top 8 popular dishes
+      return menuItems.filter(item => item.available !== false).slice(0, 8);
+    }
+    const q = query.toLowerCase();
+    return menuItems.filter(item => {
+      if (item.available === false) return false;
+      const name = item.name.toLowerCase();
+      const code = (item.itemCode || "").toLowerCase();
+      const cat = (item.category || "").toLowerCase();
+      return name.includes(q) || code === q || cat.includes(q);
+    }).slice(0, 8);
+  }, [menuItems, searchQuery]);
+
+  // Top 6 Speed Dial Favorites for 1-click addition
+  const speedDialFavorites = useMemo(() => {
+    const bestsellers = menuItems.filter(i => (i.isBestseller || i.isChefSpecial) && i.available !== false);
+    if (bestsellers.length >= 6) return bestsellers.slice(0, 6);
+    return menuItems.filter(i => i.available !== false).slice(0, 6);
+  }, [menuItems]);
+
+  // Search input ref for instant keyboard shortcut '/'
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Shortcut '/' to focus search input if not currently typing in a field
+      if (e.key === "/" && !(document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || document.activeElement instanceof HTMLSelectElement)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      // Shortcut 'Escape' to blur search
+      if (e.key === "Escape" && document.activeElement === searchInputRef.current) {
+        setSearchQuery("");
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Group cart items into printed KOT batches and new unprinted items
   const groupedKotItems = useMemo(() => {
-    const printedBatches: Record<string, CartItem[]> = {};
+    const batchMap: Record<string, CartItem[]> = {};
     const unprintedItems: CartItem[] = [];
 
     cart.forEach(item => {
       if (item.isKotSent && item.kotNumber) {
-        if (!printedBatches[item.kotNumber]) {
-          printedBatches[item.kotNumber] = [];
+        if (!batchMap[item.kotNumber]) {
+          batchMap[item.kotNumber] = [];
         }
-        printedBatches[item.kotNumber].push(item);
+        batchMap[item.kotNumber].push(item);
       } else {
         unprintedItems.push(item);
       }
     });
+
+    const printedBatches = Object.entries(batchMap).map(([kotNumber, items]) => ({
+      kotNumber,
+      items
+    }));
 
     return { printedBatches, unprintedItems };
   }, [cart]);
@@ -286,9 +372,6 @@ export default function PosBillingPortal({
     );
   }, [orderType, selectedTable, orders]);
 
-  // Search & Filters for Regular Items Catalog
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<string>("All");
 
   // Modals Toggles
   const [showManualModal, setShowManualModal] = useState(false);
@@ -314,11 +397,13 @@ export default function PosBillingPortal({
   const filteredMenuItems = useMemo(() => {
     return menuItems.filter(item => {
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.itemCode?.toLowerCase().includes(searchQuery.toLowerCase());
+        (item.itemCode && item.itemCode.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesCategory = activeCategory === "All" || item.category === activeCategory;
-      return matchesSearch && matchesCategory && item.available !== false;
+      const matchesVeg = !filterVegOnly || item.isVeg !== false;
+      const matchesBestseller = !filterBestsellerOnly || (item.isBestseller || item.isChefSpecial);
+      return matchesSearch && matchesCategory && matchesVeg && matchesBestseller && item.available !== false;
     });
-  }, [menuItems, searchQuery, activeCategory]);
+  }, [menuItems, searchQuery, activeCategory, filterVegOnly, filterBestsellerOnly]);
 
   // Categories list derived from menu
   const categories = useMemo(() => {
@@ -392,6 +477,79 @@ export default function PosBillingPortal({
       };
       setCart(prev => [...prev, newItem]);
     }
+  };
+
+  // Add item with custom quantity (from speed search e.g. "chilli*2")
+  const handleAddRegularWithQtyToCart = (item: MenuItem, qty: number = 1) => {
+    const safeQty = Math.max(1, qty);
+    const unsentIndex = cart.findIndex(c => c.name === item.name && !c.isKotSent);
+    if (unsentIndex !== -1) {
+      setCart(prev => prev.map((c, idx) => idx === unsentIndex ? { ...c, quantity: c.quantity + safeQty } : c));
+    } else {
+      const newItem: CartItem = {
+        id: `reg-${item.id}-${Date.now()}`,
+        name: item.name,
+        price: item.price,
+        quantity: safeQty,
+        isManual: false,
+        category: item.category,
+        gstRate: settings.gstEnabled ? (item.gstPercent || settings.gstPercentage || 0) : 0,
+        discount: 0,
+        hsnCode: item.hsnCode || "2106",
+        isKotSent: false
+      };
+      setCart(prev => [...prev, newItem]);
+    }
+  };
+
+  // Handle decrementing regular menu item quantity directly from the menu card
+  const handleDecrementRegularFromCart = (item: MenuItem) => {
+    // Look for unsent instance in cart first
+    const unsentIndex = cart.findIndex(c => c.name === item.name && !c.isKotSent);
+    if (unsentIndex !== -1) {
+      const target = cart[unsentIndex];
+      if (target.quantity > 1) {
+        setCart(prev => prev.map((c, idx) => idx === unsentIndex ? { ...c, quantity: c.quantity - 1 } : c));
+      } else {
+        handleRemoveFromCart(target.id);
+      }
+      return;
+    }
+    // Otherwise look for last matching item
+    const lastMatch = [...cart].reverse().find(c => c.name === item.name);
+    if (lastMatch) {
+      handleAdjustQuantity(lastMatch.id, -1);
+    }
+  };
+
+  // Keyboard navigation & Enter selection for speed search command center
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (speedSearchResults.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex(prev => (prev + 1) % speedSearchResults.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex(prev => (prev - 1 + speedSearchResults.length) % speedSearchResults.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const target = speedSearchResults[highlightedIndex] || speedSearchResults[0];
+      if (target) {
+        const { qty } = parseSearchInput(searchQuery);
+        handleAddRegularWithQtyToCart(target, qty);
+        setSearchQuery("");
+        setHighlightedIndex(0);
+      }
+    }
+  };
+
+  const handleSelectSearchResult = (item: MenuItem) => {
+    const { qty } = parseSearchInput(searchQuery);
+    handleAddRegularWithQtyToCart(item, qty);
+    setSearchQuery("");
+    setHighlightedIndex(0);
+    searchInputRef.current?.focus();
   };
 
   // Validate and submit manual billing item
@@ -1224,7 +1382,7 @@ export default function PosBillingPortal({
       {/* 1. Header Navigation Bar (Compact) */}
       <div className="bg-white px-3 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="p-1 bg-[#C67C4E]/10 rounded-md text-[#C67C4E]">
+          <span className="p-1 bg-emerald-50 rounded-md text-emerald-700 border border-emerald-200/60">
             <Calculator className="w-3.5 h-3.5" />
           </span>
           <h3 className="text-xs font-serif font-bold text-stone-900 uppercase tracking-wide">
@@ -1233,6 +1391,22 @@ export default function PosBillingPortal({
           <span className="text-[10px] text-stone-400 hidden lg:inline font-mono">
             • Rapid Order Invoicing & Billing
           </span>
+          <button
+            type="button"
+            onClick={() => setIsTablePanelCollapsed(prev => !prev)}
+            className={`ml-2 px-2.5 py-0.5 rounded-lg text-[10px] font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer border ${
+              !isTablePanelCollapsed
+                ? "bg-stone-100 text-stone-700 border-stone-300 hover:bg-stone-200"
+                : "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-xs"
+            }`}
+            title="Toggle dining tables side drawer"
+          >
+            <Layers className="w-3 h-3 text-emerald-600" />
+            <span>Tables ({tables.length})</span>
+            <span className="bg-emerald-600 text-white text-[8px] px-1.5 py-0.2 rounded-full">
+              {tables.filter(t => t.status === "Occupied").length}
+            </span>
+          </button>
         </div>
 
         {/* Controller selectors */}
@@ -1495,144 +1669,176 @@ export default function PosBillingPortal({
       {/* 2. EATSPACE 3-COLUMN POS BILLING WORKSPACE */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start w-full">
 
-        {/* COLUMN 1: LEFT TABLE DIRECTORY RAIL (Eatspace Style) */}
-        <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col gap-2.5 max-h-[calc(100vh-125px)] overflow-y-auto">
-          {/* Table Rail Header */}
-          <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-            <div className="flex items-center gap-1.5 font-bold text-xs text-stone-900 font-serif">
-              <Layers className="w-3.5 h-3.5 text-[#C67C4E]" />
-              <span>Dining Tables ({tables.length})</span>
-            </div>
-            <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">
-              {tables.filter(t => t.status === "Occupied").length} Active
-            </span>
-          </div>
-
-          {/* Table Cards Square Grid */}
-          <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-0.5">
-            {tables.map(table => {
-              const activeOrd = orders.find(
-                o => o.orderType === "dine-in" &&
-                  isSameTable(o.tableNumber, table.tableNumber) &&
-                  o.paymentStatus !== "Paid" &&
-                  o.orderStatus !== "Cancelled"
-              );
-              const hasOrder = !!activeOrd;
-              const isOccupied = table.status === "Occupied" || hasOrder;
-              const isSelected = isSameTable(selectedTable, table.tableNumber) && orderType === "dine-in";
-
-              let cardBg = "bg-emerald-500/50 border-emerald-600/60 shadow-xs hover:bg-emerald-500/60";
-              let badgeBg = "bg-emerald-800 text-white border-emerald-900";
-              let badgeText = "Available";
-              let badgeDot = "bg-emerald-200";
-              let tableIconBg = "bg-white text-emerald-800 border-emerald-300 font-black shadow-xs";
-              let textColor = "text-stone-900";
-              let subTextColor = "text-emerald-950";
-              let footerBorder = "border-emerald-600/30";
-
-              if (isOccupied) {
-                // Occupied / Ordered -> 80% Red Theme
-                cardBg = "bg-red-500/85 border-red-600 shadow-xs text-white hover:bg-red-600/90";
-                badgeBg = "bg-red-950 text-white border-red-800";
-                badgeText = hasOrder ? "Ordered" : "On dine";
-                badgeDot = "bg-rose-400 animate-ping";
-                tableIconBg = "bg-white text-red-700 border-red-200 font-black shadow-xs";
-                textColor = "text-white";
-                subTextColor = "text-red-100";
-                footerBorder = "border-red-400/60";
-              }
-
-              return (
-                <div
-                  key={table.id}
-                  onClick={() => {
-                    setOrderType("dine-in");
-                    handleTableChange(table.tableNumber);
-                  }}
-                  className={`aspect-square p-2 rounded-xl border transition-all cursor-pointer flex flex-col justify-between items-center text-center relative group ${cardBg} ${isSelected
-                      ? "ring-2 ring-[#C67C4E] border-[#C67C4E] shadow-sm scale-[1.02]"
-                      : ""
-                    }`}
-                >
-                  {/* Top Header Row: Seat Count & Status Badge */}
-                  <div className="w-full flex items-center justify-between gap-1">
-                    <span className={`text-[9px] font-mono font-bold ${subTextColor}`}>
-                      {table.capacity}p
-                    </span>
-                    <span className={`px-1 py-0.2 rounded-full border text-[7px] font-bold uppercase font-mono flex items-center gap-0.5 ${badgeBg}`}>
-                      <span className={`w-1 h-1 rounded-full ${badgeDot}`} />
-                      <span>{badgeText}</span>
-                    </span>
-                  </div>
-
-                  {/* Center Table Number & Name */}
-                  <div className="flex flex-col items-center justify-center gap-0.5 my-auto">
-                    <div className={`w-10 h-10 rounded-xl font-serif font-black text-base flex items-center justify-center border ${tableIconBg}`}>
-                      T{table.tableNumber}
-                    </div>
-                    <span className={`text-[10px] font-bold truncate max-w-[85px] ${textColor}`} title={activeOrd?.customerName || `Table #${table.tableNumber}`}>
-                      {activeOrd?.customerName || (isOccupied ? `Table #${table.tableNumber}` : `Available`)}
-                    </span>
-                  </div>
-
-                  {/* Bottom Footer Row: Amount or Area */}
-                  <div className={`w-full pt-1 border-t ${footerBorder} flex items-center justify-center`}>
-                    {hasOrder ? (
-                      <span className="text-[10px] font-mono font-extrabold text-red-950 bg-white px-1.5 py-0.2 rounded border border-red-200 shadow-2xs">
-                        ₹{activeOrd.grandTotal}
-                      </span>
-                    ) : (
-                      <span className={`text-[8px] font-mono truncate ${subTextColor}`}>
-                        {table.seatingArea || "Main Hall"}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* COLUMN 2: CENTER CATEGORY TILES & MENU CATALOG GRID (Eatspace Style) */}
-        <div className="lg:col-span-5 xl:col-span-5 2xl:col-span-5 flex flex-col gap-3 min-w-0">
-          {/* Visual Category Tiles */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {categories.slice(0, 4).map((cat) => {
-              const count = cat === "All" ? menuItems.length : menuItems.filter(i => i.category === cat).length;
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setActiveCategory(cat)}
-                  className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between min-h-[54px] ${activeCategory === cat
-                      ? "bg-[#C67C4E] text-white border-[#C67C4E] shadow-2xs"
-                      : "bg-white text-stone-700 border-stone-200 hover:bg-stone-50"
-                    }`}
-                >
-                  <span className="font-serif font-bold text-xs truncate">{cat}</span>
-                  <span className={`text-[9px] font-mono ${activeCategory === cat ? "text-white/80" : "text-stone-400"}`}>
-                    {count} Items
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Search Bar & Manual Add Row */}
-          <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-xs space-y-3">
-            <div className="flex gap-2.5 items-center">
-              <div className="relative flex-grow">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search catalog menu items (e.g. Masala Dosa, Coffee...)"
-                  className="w-full pl-10 pr-4 py-2 bg-stone-50 border border-stone-200/80 focus:border-[#C67C4E] rounded-xl text-xs sm:text-sm font-sans placeholder:text-stone-400 focus:outline-none transition-all shadow-2xs"
-                />
+        {/* COLUMN 1: LEFT TABLE DIRECTORY RAIL (Collapsible) */}
+        {!isTablePanelCollapsed && (
+          <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col gap-2.5 max-h-[calc(100vh-125px)] overflow-y-auto">
+            {/* Table Rail Header */}
+            <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+              <div className="flex items-center gap-1.5 font-bold text-xs text-stone-900 font-serif">
+                <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Dining Tables ({tables.length})</span>
               </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-bold border border-emerald-200/60">
+                  {tables.filter(t => t.status === "Occupied").length} Active
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsTablePanelCollapsed(true)}
+                  className="p-1 hover:bg-stone-100 rounded-md text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+                  title="Collapse Tables"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
 
+            {/* Table Cards Modern Responsive Grid */}
+            <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-0.5">
+              {tables.map(table => {
+                const activeOrd = orders.find(
+                  o => o.orderType === "dine-in" &&
+                    isSameTable(o.tableNumber, table.tableNumber) &&
+                    o.paymentStatus !== "Paid" &&
+                    o.orderStatus !== "Cancelled"
+                );
+                const hasOrder = !!activeOrd;
+                const isOccupied = table.status === "Occupied" || hasOrder;
+                const isSelected = isSameTable(selectedTable, table.tableNumber) && orderType === "dine-in";
+
+                return (
+                  <div
+                    key={table.id}
+                    onClick={() => {
+                      setOrderType("dine-in");
+                      handleTableChange(table.tableNumber);
+                    }}
+                    className={`p-2.5 rounded-2xl border transition-all duration-150 cursor-pointer flex flex-col justify-between relative group ${
+                      isSelected
+                        ? "ring-2 ring-emerald-600 border-emerald-600 bg-emerald-50/40 shadow-sm scale-[1.02]"
+                        : isOccupied
+                          ? "bg-rose-50/70 border-rose-200/90 hover:border-rose-300 hover:shadow-xs"
+                          : "bg-white border-stone-200/90 hover:border-emerald-300 hover:bg-emerald-50/20 hover:shadow-xs"
+                    }`}
+                  >
+                    {/* Top Header Row: Seat Count & Status Badge */}
+                    <div className="w-full flex items-center justify-between gap-1">
+                      <span className="text-[10px] font-mono font-medium text-stone-500">
+                        {table.capacity}p
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                          isOccupied
+                            ? "bg-rose-100/90 text-rose-700 border border-rose-200"
+                            : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${isOccupied ? "bg-rose-500 animate-pulse" : "bg-emerald-500"}`} />
+                        <span>{isOccupied ? (hasOrder ? "Billed" : "Seated") : "Free"}</span>
+                      </span>
+                    </div>
+
+                    {/* Center Table Number & Name */}
+                    <div className="flex flex-col items-center justify-center gap-1 my-2">
+                      <div
+                        className={`w-10 h-10 rounded-xl font-mono font-bold text-sm flex items-center justify-center border transition-colors ${
+                          isSelected
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                            : isOccupied
+                              ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
+                              : "bg-stone-50 text-stone-800 border-stone-200 group-hover:border-emerald-300 group-hover:bg-emerald-50"
+                        }`}
+                      >
+                        T{table.tableNumber}
+                      </div>
+                      <span
+                        className={`text-[10px] font-medium truncate max-w-[95px] ${
+                          isOccupied ? "text-rose-900 font-semibold" : "text-stone-500"
+                        }`}
+                        title={activeOrd?.customerName || `Table #${table.tableNumber}`}
+                      >
+                        {activeOrd?.customerName || (isOccupied ? `Table #${table.tableNumber}` : "Available")}
+                      </span>
+                    </div>
+
+                    {/* Bottom Footer Row: Amount or Area */}
+                    <div className="w-full pt-1.5 border-t border-stone-150 flex items-center justify-center">
+                      {hasOrder ? (
+                        <span className="font-mono font-bold text-[10px] text-rose-700 bg-rose-100/80 px-2 py-0.5 rounded-full border border-rose-200/60">
+                          ₹{activeOrd.grandTotal}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-stone-400 truncate max-w-[85px]">
+                          {table.seatingArea || "Main Hall"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* COLUMN 2: CENTER MENU - SPEED SEARCH COMMAND CENTER OR CATALOG GRID */}
+        <div className={`${isTablePanelCollapsed ? "lg:col-span-7 xl:col-span-8 2xl:col-span-8" : "lg:col-span-5 xl:col-span-5 2xl:col-span-5"} flex flex-col gap-3 min-w-0 transition-all`}>
+
+          {/* Top Control Bar: Mode Toggle & Utilities */}
+          <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-stone-200 shadow-xs flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {/* Expand tables button if collapsed */}
+              {isTablePanelCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => setIsTablePanelCollapsed(false)}
+                  className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 rounded-xl text-xs font-bold font-mono flex items-center gap-1 cursor-pointer shrink-0"
+                  title="Expand Tables Drawer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Tables</span>
+                </button>
+              )}
+
+              {/* View Mode Toggle: [ ⚡ Speed Search ] vs [ 🗂️ Catalog Grid ] */}
+              <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPosViewMode("search");
+                    setTimeout(() => searchInputRef.current?.focus(), 50);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    posViewMode === "search"
+                      ? "bg-stone-900 text-white shadow-xs"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  <Zap className={`w-3.5 h-3.5 ${posViewMode === "search" ? "text-amber-400 fill-amber-400" : ""}`} />
+                  <span>Speed Search</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPosViewMode("grid")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    posViewMode === "grid"
+                      ? "bg-stone-900 text-white shadow-xs"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Catalog Grid</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono font-semibold text-stone-600 hidden md:inline bg-stone-100 px-2.5 py-1 rounded-lg border border-stone-200/60">
+                {menuItems.filter(i => i.available !== false).length} items
+              </span>
+
+              {/* + MANUAL ITEM BUTTON */}
               <button
+                type="button"
                 onClick={() => {
                   executeWithPermission(
                     "pos.manual_item",
@@ -1644,267 +1850,652 @@ export default function PosBillingPortal({
                     () => setShowManualModal(true)
                   );
                 }}
-                className="px-3.5 py-2 bg-[#C67C4E] hover:bg-[#b26938] text-white font-sans font-bold uppercase tracking-wider text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white font-sans font-bold uppercase tracking-wider text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
               >
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>+ MANUAL</span>
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span className="hidden sm:inline">+ MANUAL</span>
               </button>
             </div>
-
-            {/* Category horizontal badges */}
-            <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar select-none">
-              {categories.map((cat) => {
-                const isAll = cat === "All";
-                const displayCat = isAll ? "ALL" : cat.toUpperCase().replace(/\s+/g, "-");
-                const isActive = activeCategory === cat;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveCategory(cat)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide transition-all whitespace-nowrap cursor-pointer ${
-                      isActive
-                        ? "bg-[#C67C4E] text-white shadow-2xs"
-                        : "bg-stone-100 text-stone-600 hover:bg-stone-200/80 hover:text-stone-900 border border-stone-200/60"
-                    }`}
-                  >
-                    {displayCat}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
-          {/* Menu Catalog Grid - Clean 3-Column Light Theme Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 overflow-y-auto max-h-[calc(100vh-250px)] min-h-[280px] pr-0.5">
-            {filteredMenuItems.map((item) => {
-              const itemQty = cart.filter(c => c.name === item.name).reduce((sum, c) => sum + c.quantity, 0);
-              const isSelected = itemQty > 0;
-
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => handleAddRegularToCart(item)}
-                  className={`p-3.5 rounded-2xl border text-left transition-all duration-200 hover:shadow-md cursor-pointer group flex flex-col justify-between min-h-[145px] relative ${
-                    isSelected
-                      ? "bg-amber-50/20 border-[#C67C4E] ring-2 ring-[#C67C4E]/40 shadow-xs"
-                      : "bg-white border-stone-200 hover:border-stone-300 shadow-2xs"
-                  }`}
-                >
-                  <div>
-                    {/* Top Row: Veg Icon & Popular Badge */}
-                    <div className="flex justify-between items-center gap-1.5 mb-2">
-                      {/* Square Pure Veg Green Icon / Red Non-Veg Icon */}
-                      <div
-                        className={`w-4 h-4 border-[1.5px] p-[1.5px] flex items-center justify-center rounded-[3px] shrink-0 ${
-                          item.isVeg !== false
-                            ? "border-emerald-600"
-                            : "border-red-600"
-                        }`}
-                        title={item.isVeg !== false ? "Pure Veg" : "Non-Veg"}
-                      >
-                        <div
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            item.isVeg !== false ? "bg-emerald-600" : "bg-red-600"
-                          }`}
-                        />
-                      </div>
-
-                      {/* POPULAR Badge */}
-                      {(item.isBestseller || item.isChefSpecial) && (
-                        <span className="bg-amber-100/90 text-amber-900 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider font-mono">
-                          POPULAR
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Middle Row: Title */}
-                    <div className="mb-3">
-                      <h5
-                        className={`font-bold text-sm sm:text-base leading-snug line-clamp-2 transition-colors ${
-                          isSelected ? "text-[#C67C4E]" : "text-stone-900 group-hover:text-[#C67C4E]"
-                        }`}
-                        title={item.name}
-                      >
-                        {item.name}
-                      </h5>
-                    </div>
-                  </div>
-
-                  {/* Bottom Row: Price & + ADD Button */}
-                  <div className="flex justify-between items-center border-t border-stone-100 pt-2.5 mt-auto">
-                    <span className="text-stone-900 font-sans font-bold text-base sm:text-lg">
-                      ₹{item.price.toLocaleString("en-IN")}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddRegularToCart(item);
-                      }}
-                      className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer ${
-                        isSelected
-                          ? "bg-[#C67C4E] text-white shadow-2xs hover:bg-[#b26938]"
-                          : "bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-200/80"
-                      }`}
-                    >
-                      <span>+ ADD</span>
-                      {itemQty > 0 && <span className="ml-1 text-[10px] bg-white/30 px-1.5 py-0.2 rounded-full">({itemQty})</span>}
-                    </button>
+          {posViewMode === "search" ? (
+            /* =========================================================================
+               MODE A: SPEED SEARCH & ADD COMMAND CENTER (SEARCH & PUT THAT'S IT)
+               ========================================================================= */
+            <div className="flex flex-col gap-3">
+              {/* Command Search Input & Multiplier Display */}
+              <div className="bg-white p-3.5 rounded-2xl border border-stone-200 shadow-xs space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder="Search dish or code (e.g. 'chilli*2', 'coke 3') · Enter to add..."
+                    className="w-full pl-11 pr-24 py-3 bg-stone-50 border-2 border-stone-200 focus:border-stone-900 focus:bg-white rounded-xl text-sm font-semibold placeholder:font-normal placeholder:text-stone-400 focus:outline-none transition-all shadow-inner"
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                    {searchQuery ? (
+                      <>
+                        {(() => {
+                          const { qty } = parseSearchInput(searchQuery);
+                          return qty > 1 ? (
+                            <span className="bg-amber-100 text-amber-900 font-mono font-bold text-xs px-2 py-0.5 rounded-md border border-amber-300">
+                              ×{qty}
+                            </span>
+                          ) : null;
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery("");
+                            searchInputRef.current?.focus();
+                          }}
+                          className="text-stone-400 hover:text-stone-700 p-1 rounded-md cursor-pointer hover:bg-stone-200"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <span className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-stone-400 bg-stone-100 px-2 py-1 rounded-md border border-stone-200">
+                        <kbd className="font-semibold">/</kbd> focus
+                      </span>
+                    )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Speed Dial Favorites (1-Tap Fast Addition) */}
+                {speedDialFavorites.length > 0 && (
+                  <div className="pt-0.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 font-mono flex items-center gap-1">
+                        <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
+                        Speed Dial (1-Tap Add)
+                      </span>
+                      <span className="text-[10px] text-stone-400">Click to add immediately</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-1.5">
+                      {speedDialFavorites.map((fav) => {
+                        const inCartCount = cart.filter(c => c.name === fav.name).reduce((sum, c) => sum + c.quantity, 0);
+                        return (
+                          <button
+                            key={fav.id}
+                            type="button"
+                            onClick={() => {
+                              handleAddRegularToCart(fav);
+                              searchInputRef.current?.focus();
+                            }}
+                            className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between group ${
+                              inCartCount > 0
+                                ? "bg-emerald-50/60 border-emerald-300 hover:border-emerald-400"
+                                : "bg-stone-50 hover:bg-stone-100 border-stone-200 hover:border-stone-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1 w-full mb-1">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${fav.isVeg !== false ? "bg-emerald-500" : "bg-red-500"}`} />
+                              {inCartCount > 0 && (
+                                <span className="text-[9px] font-mono font-bold bg-emerald-600 text-white px-1.5 py-0.2 rounded-full">
+                                  +{inCartCount}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-bold text-xs text-stone-800 line-clamp-1 group-hover:text-stone-950">
+                              {fav.name}
+                            </p>
+                            <p className="text-[11px] font-sans font-bold text-stone-600 mt-1">
+                              ₹{fav.price}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Instant Search Results Spotlight List */}
+              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-330px)] min-h-[300px]">
+                <div className="px-3.5 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between text-xs">
+                  <div className="font-bold text-stone-700 flex items-center gap-1.5">
+                    <span>{searchQuery ? `Dishes matching "${searchQuery}"` : "Frequently Ordered Dishes"}</span>
+                    <span className="font-mono text-[10px] bg-stone-200 text-stone-700 px-2 py-0.5 rounded-full font-bold">
+                      {speedSearchResults.length}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-stone-600 flex items-center gap-2">
+                    <span className="hidden sm:inline">Use <kbd className="font-mono font-semibold bg-stone-200 px-1 rounded">↑</kbd> <kbd className="font-mono font-semibold bg-stone-200 px-1 rounded">↓</kbd></span>
+                    <span>Press <kbd className="font-mono font-semibold bg-stone-900 text-white px-1.5 py-0.5 rounded">Enter</kbd> to add</span>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-stone-100 overflow-y-auto flex-grow p-1.5 space-y-1">
+                  {speedSearchResults.length === 0 ? (
+                    <div className="py-14 text-center text-stone-400 flex flex-col items-center justify-center gap-2">
+                      <Search className="w-8 h-8 text-stone-300" />
+                      <p className="font-semibold text-stone-700 text-sm">No dishes matched "{searchQuery}"</p>
+                      <p className="text-xs text-stone-400">Add it directly as a custom billing item:</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualName(searchQuery.replace(/[*xX]\s*\d+$/, "").trim());
+                          executeWithPermission(
+                            "pos.manual_item",
+                            {
+                              actionType: "add_manual",
+                              title: "Manual Item Insertion Authorization",
+                              description: "Authorization required to create and add a non-catalog custom culinary item"
+                            },
+                            () => setShowManualModal(true)
+                          );
+                        }}
+                        className="mt-2 px-3.5 py-2 bg-stone-900 text-white rounded-xl text-xs font-bold hover:bg-stone-800 cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add "{searchQuery}" as Custom Item</span>
+                      </button>
+                    </div>
+                  ) : (
+                    speedSearchResults.map((item, idx) => {
+                      const isHighlighted = idx === highlightedIndex;
+                      const itemInCart = cart.filter(c => c.name === item.name).reduce((sum, c) => sum + c.quantity, 0);
+                      const { qty } = parseSearchInput(searchQuery);
+
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleSelectSearchResult(item)}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          className={`p-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            isHighlighted
+                              ? "bg-stone-900 text-white shadow-xs"
+                              : "hover:bg-stone-50 text-stone-800"
+                          }`}
+                        >
+                          {/* Left: Index badge, Veg icon, Dish Details */}
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className={`w-6 h-6 rounded-lg text-xs font-mono font-bold flex items-center justify-center shrink-0 ${
+                              isHighlighted
+                                ? "bg-white/20 text-white"
+                                : "bg-stone-100 text-stone-600"
+                            }`}>
+                              {idx + 1}
+                            </span>
+
+                            {/* Veg / Non-Veg dot */}
+                            <div
+                              className={`w-3.5 h-3.5 border-[1.5px] p-[1.5px] flex items-center justify-center rounded-[3px] shrink-0 ${
+                                item.isVeg !== false ? "border-emerald-500" : "border-red-500"
+                              }`}
+                            >
+                              <div
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  item.isVeg !== false ? "bg-emerald-500" : "bg-red-500"
+                                }`}
+                              />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h4 className={`text-xs sm:text-sm font-bold truncate ${isHighlighted ? "text-white" : "text-stone-900"}`}>
+                                  {item.name}
+                                </h4>
+                                {item.itemCode && (
+                                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
+                                    isHighlighted ? "bg-white/20 text-stone-200" : "bg-stone-100 text-stone-500"
+                                  }`}>
+                                    #{item.itemCode}
+                                  </span>
+                                )}
+                                {itemInCart > 0 && (
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                                    isHighlighted ? "bg-emerald-400 text-emerald-950" : "bg-emerald-100 text-emerald-800"
+                                  }`}>
+                                    Cart: {itemInCart}
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-[11px] truncate ${isHighlighted ? "text-stone-300" : "text-stone-400"}`}>
+                                {item.category || "General"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Right: Price & Quick Action */}
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className={`font-sans font-bold text-xs sm:text-sm ${
+                              isHighlighted ? "text-emerald-300" : "text-stone-900"
+                            }`}>
+                              ₹{item.price.toLocaleString("en-IN")}
+                            </span>
+
+                            <div className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition-all ${
+                              isHighlighted
+                                ? "bg-emerald-500 text-emerald-950 font-extrabold shadow-2xs"
+                                : "bg-stone-100 text-stone-700 hover:bg-emerald-50 hover:text-emerald-700"
+                            }`}>
+                              <CornerDownLeft className="w-3 h-3 stroke-[2.5]" />
+                              <span>{qty > 1 ? `+${qty}` : "+Add"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Keyboard hints bottom bar */}
+                <div className="px-3 py-1.5 bg-stone-50 border-t border-stone-200 flex flex-wrap items-center justify-between text-[10px] text-stone-600 font-mono">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span><strong className="text-stone-700">↵ Enter</strong> add item</span>
+                    <span><strong className="text-stone-700">chilli*2</strong> quantity</span>
+                    <span><strong className="text-stone-700">↑ ↓</strong> navigate</span>
+                  </div>
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span><strong className="text-stone-700">/</strong> focus</span>
+                    <span><strong className="text-stone-700">Esc</strong> clear</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* =========================================================================
+               MODE B: VISUAL CATALOG GRID WITH CATEGORY FILTERS
+               ========================================================================= */
+            <div className="flex flex-col gap-3">
+              {/* Search Bar & Quick Filter Strip */}
+              <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-xs space-y-2.5">
+                <div className="flex gap-2 items-center">
+                  {/* Main Search Input */}
+                  <div className="relative flex-grow">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search dishes or item code..."
+                      className="w-full pl-10 pr-9 py-2 bg-stone-50 border border-stone-200 focus:border-stone-900 focus:bg-white rounded-xl text-xs sm:text-sm font-sans placeholder:text-stone-400 focus:outline-none transition-all shadow-2xs"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 rounded cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quick Filter: Veg Only */}
+                  <button
+                    type="button"
+                    onClick={() => setFilterVegOnly(prev => !prev)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border ${
+                      filterVegOnly
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                        : "bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200"
+                    }`}
+                    title="Filter Pure Veg dishes only"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span className="hidden sm:inline">Veg</span>
+                  </button>
+
+                  {/* Quick Filter: Popular */}
+                  <button
+                    type="button"
+                    onClick={() => setFilterBestsellerOnly(prev => !prev)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border ${
+                      filterBestsellerOnly
+                        ? "bg-amber-500 text-white border-amber-500 shadow-2xs"
+                        : "bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200"
+                    }`}
+                    title="Filter Popular & Bestseller items"
+                  >
+                    <Flame className="w-3.5 h-3.5 text-amber-500" />
+                    <span className="hidden sm:inline">Popular</span>
+                  </button>
+                </div>
+
+                {/* Single Unified Category Scroll Bar with Item Counts */}
+                <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar select-none pt-0.5">
+                  {categories.map((cat) => {
+                    const isAll = cat === "All";
+                    const count = isAll ? menuItems.length : menuItems.filter(i => i.category === cat).length;
+                    const isActive = activeCategory === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setActiveCategory(cat)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                          isActive
+                            ? "bg-stone-900 text-white shadow-xs"
+                            : "bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200/60"
+                        }`}
+                      >
+                        <span>{cat}</span>
+                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                          isActive ? "bg-white/20 text-white" : "bg-stone-200 text-stone-600"
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Menu Catalog Grid */}
+              <div className={`grid grid-cols-1 sm:grid-cols-2 ${isTablePanelCollapsed ? "xl:grid-cols-3 2xl:grid-cols-4" : "xl:grid-cols-3"} gap-2.5 sm:gap-3 overflow-y-auto max-h-[calc(100vh-235px)] min-h-[300px] pr-0.5`}>
+                {filteredMenuItems.length === 0 ? (
+                  <div className="col-span-full py-16 text-center text-stone-400 bg-white rounded-2xl border border-stone-200 flex flex-col items-center justify-center gap-2">
+                    <Search className="w-8 h-8 text-stone-300" />
+                    <p className="font-semibold text-stone-700 text-sm">No dishes match your search or filter</p>
+                    <p className="text-xs text-stone-400">Try searching another term or reset your category filters</p>
+                    {(searchQuery || filterVegOnly || filterBestsellerOnly || activeCategory !== "All") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery("");
+                          setActiveCategory("All");
+                          setFilterVegOnly(false);
+                          setFilterBestsellerOnly(false);
+                        }}
+                        className="mt-2 px-3 py-1 bg-stone-900 text-white rounded-lg text-xs font-bold cursor-pointer"
+                      >
+                        Reset Filters
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  filteredMenuItems.map((item) => {
+                    const itemQty = cart.filter(c => c.name === item.name).reduce((sum, c) => sum + c.quantity, 0);
+                    const isSelected = itemQty > 0;
+
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleAddRegularToCart(item)}
+                        className={`p-3 rounded-2xl border text-left transition-all duration-150 hover:shadow-md cursor-pointer group flex flex-col justify-between min-h-[135px] relative ${
+                          isSelected
+                            ? "bg-emerald-50/20 border-emerald-400 ring-2 ring-emerald-500/30 shadow-xs"
+                            : "bg-white border-stone-200 hover:border-stone-300 shadow-2xs"
+                        }`}
+                      >
+                        <div>
+                          {/* Top Row: Veg Icon & Category/Popular Badges */}
+                          <div className="flex justify-between items-center gap-1.5 mb-2">
+                            {/* Veg / Non-Veg Icon */}
+                            <div
+                              className={`w-3.5 h-3.5 border-[1.5px] p-[1.5px] flex items-center justify-center rounded-[3px] shrink-0 ${
+                                item.isVeg !== false ? "border-emerald-600" : "border-red-600"
+                              }`}
+                              title={item.isVeg !== false ? "Pure Veg" : "Non-Veg"}
+                            >
+                              <div
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  item.isVeg !== false ? "bg-emerald-600" : "bg-red-600"
+                                }`}
+                              />
+                            </div>
+
+                            {/* POPULAR Badge */}
+                            {(item.isBestseller || item.isChefSpecial) && (
+                              <span className="bg-amber-100 text-amber-900 text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded-md tracking-wider font-mono flex items-center gap-0.5">
+                                <Flame className="w-2.5 h-2.5 text-amber-600" />
+                                <span>POPULAR</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Middle: Dish Name */}
+                          <div className="mb-2">
+                            <h5
+                              className={`font-bold text-xs sm:text-sm leading-snug line-clamp-2 transition-colors ${
+                                isSelected ? "text-emerald-950 font-extrabold" : "text-stone-900 group-hover:text-stone-950"
+                              }`}
+                              title={item.name}
+                            >
+                              {item.name}
+                            </h5>
+                          </div>
+                        </div>
+
+                        {/* Bottom Row: Price & High-Speed Quantity Control */}
+                        <div className="flex justify-between items-center border-t border-stone-100 pt-2 mt-auto">
+                          <span className="text-stone-900 font-sans font-bold text-sm sm:text-base">
+                            ₹{item.price.toLocaleString("en-IN")}
+                          </span>
+
+                          {itemQty > 0 ? (
+                            <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-300 rounded-xl p-0.5 shadow-2xs">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDecrementRegularFromCart(item);
+                                }}
+                                className="w-6 h-6 rounded-lg bg-white text-emerald-800 hover:bg-emerald-100 font-bold text-xs flex items-center justify-center cursor-pointer shadow-2xs"
+                                title="Reduce quantity"
+                              >
+                                −
+                              </button>
+                              <span className="font-mono font-bold text-xs px-1.5 text-emerald-950 min-w-[18px] text-center">
+                                {itemQty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddRegularToCart(item);
+                                }}
+                                className="w-6 h-6 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center cursor-pointer shadow-2xs"
+                                title="Add one more"
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddRegularToCart(item);
+                              }}
+                              className="px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer bg-stone-100 hover:bg-emerald-600 hover:text-white text-stone-800 border border-stone-200/90 shadow-2xs group-hover:border-emerald-300"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Add</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* COLUMN 3: RIGHT ACTIVE BILLING CART & SETTLEMENT PANEL */}
-        <div className="lg:col-span-4 xl:col-span-4 2xl:col-span-4 bg-white border border-stone-200 rounded-xl sm:rounded-2xl shadow-xs overflow-hidden flex flex-col lg:sticky lg:top-2 self-start max-h-[calc(100vh-125px)]">
+        <div className={`${isTablePanelCollapsed ? "lg:col-span-5 xl:col-span-4 2xl:col-span-4" : "lg:col-span-4 xl:col-span-4 2xl:col-span-4"} bg-white border border-stone-200 rounded-2xl shadow-xs overflow-hidden flex flex-col lg:sticky lg:top-2 self-start max-h-[calc(100vh-125px)] transition-all`}>
 
-          {/* Top Order Type Toggle Bar */}
-          <div className="p-2 bg-stone-100 border-b border-stone-200 flex-shrink-0">
-            <div className="grid grid-cols-3 gap-1 bg-stone-200 p-0.5 rounded-lg border border-stone-250">
+          {/* Top Order Type Modern Segmented Control */}
+          <div className="p-2.5 bg-stone-50 border-b border-stone-200 flex-shrink-0">
+            <div className="grid grid-cols-3 gap-1 bg-stone-200/70 p-1 rounded-xl border border-stone-200">
               {(["dine-in", "takeaway", "delivery"] as const).map((type) => (
                 <button
                   key={type}
                   type="button"
                   onClick={() => {
                     setOrderType(type);
-                    if (type !== "dine-in") handleTableChange("");
+                    if (type !== "dine-in") {
+                      handleTableChange("");
+                    }
                   }}
-                  className={`py-1 rounded-md font-bold text-[9px] tracking-wider uppercase transition-all cursor-pointer ${orderType === type
-                    ? "bg-[#C67C4E] text-white shadow-2xs"
-                    : "text-stone-500 hover:text-stone-850"
-                    }`}
+                  className={`py-1.5 rounded-lg font-bold text-[10px] tracking-wider uppercase transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    orderType === type
+                      ? "bg-stone-900 text-white shadow-xs"
+                      : "text-stone-600 hover:text-stone-900 hover:bg-white/60"
+                  }`}
                 >
-                  {type === "dine-in" ? "Dine-In" : type === "takeaway" ? "Takeaway" : "Delivery"}
+                  <span>{type === "dine-in" ? "🍽️ Dine-In" : type === "takeaway" ? "🥡 Takeaway" : "🛵 Delivery"}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* TOP SESSION HEADER GRID (5 Info Boxes) */}
-          <div className="p-2.5 bg-stone-50 border-b border-stone-200 space-y-2 flex-shrink-0">
-            <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-              {/* Box 1: Table No. */}
-              <div className="bg-white p-1.5 rounded-lg border border-stone-200 shadow-2xs flex flex-col justify-between min-h-[46px]">
-                <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider block">TABLE NO.</span>
-                {orderType === "dine-in" ? (
-                  <select
-                    value={selectedTable}
-                    onChange={(e) => handleTableChange(e.target.value)}
-                    className="w-full bg-transparent font-bold font-mono text-stone-900 text-[11px] focus:outline-none cursor-pointer py-0.5 truncate"
-                  >
-                    <option value="">Choose Table</option>
-                    {tables.map(table => (
-                      <option key={table.id} value={table.tableNumber}>
-                        #{table.tableNumber} {table.status === "Occupied" ? "• Occupied" : ""}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="font-bold font-mono text-stone-700 text-[11px] py-0.5">Counter</span>
-                )}
-              </div>
+          {/* Contextual Order Session Metadata */}
+          <div className="p-2.5 bg-stone-50/70 border-b border-stone-200 space-y-2 flex-shrink-0">
+            {orderType === "dine-in" ? (
+              <>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  {/* Table Selector */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-stone-400 uppercase">Table:</span>
+                    <select
+                      value={selectedTable}
+                      onChange={(e) => handleTableChange(e.target.value)}
+                      className="bg-transparent font-bold font-mono text-stone-900 text-xs focus:outline-none cursor-pointer text-right max-w-[110px] truncate"
+                    >
+                      <option value="">Choose Table</option>
+                      {tables.map(table => (
+                        <option key={table.id} value={table.tableNumber}>
+                          #{table.tableNumber} {table.status === "Occupied" ? "• Occupied" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Box 2: Invc / Token # */}
-              <div className="bg-white p-1.5 rounded-lg border border-stone-200 shadow-2xs flex flex-col justify-between min-h-[46px]">
-                <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider block">INVC / TOKEN #</span>
-                <span className="font-bold font-mono text-amber-700 text-[11px] truncate py-0.5">
-                  {activeOrderForSelectedTable ? `#${activeOrderForSelectedTable.id.slice(-6)}` : "Auto-Gen"}
-                </span>
-              </div>
-
-              {/* Box 3: Select Staff */}
-              <div className="bg-white p-1.5 rounded-lg border border-stone-200 shadow-2xs flex flex-col justify-between min-h-[46px]">
-                <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider block">SELECT STAFF</span>
-                <select
-                  value={selectedStaffName}
-                  onChange={(e) => setSelectedStaffName(e.target.value)}
-                  className="w-full bg-transparent font-semibold text-stone-900 text-[10px] focus:outline-none cursor-pointer py-0.5 truncate"
-                >
-                  <option value="">Staff</option>
-                  {staffList.map(s => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-              {/* Box 4: PAX (Guest Count) */}
-              <div className="bg-white p-1.5 rounded-lg border border-stone-200 shadow-2xs flex items-center justify-between min-h-[42px]">
-                <div>
-                  <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider block">PAX (GUESTS)</span>
-                  <span className="font-bold font-mono text-stone-900 text-xs">{paxCount}</span>
+                  {/* PAX (Guest count stepper) */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-stone-400 uppercase">Guests:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setPaxCount(prev => Math.max(1, prev - 1))}
+                        className="w-5 h-5 bg-stone-100 hover:bg-stone-200 rounded font-bold text-stone-700 flex items-center justify-center cursor-pointer text-xs"
+                      >−</button>
+                      <span className="font-mono font-bold text-stone-900 text-xs min-w-[14px] text-center">{paxCount}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPaxCount(prev => prev + 1)}
+                        className="w-5 h-5 bg-stone-100 hover:bg-stone-200 rounded font-bold text-stone-700 flex items-center justify-center cursor-pointer text-xs"
+                      >+</button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 bg-stone-100 rounded border border-stone-250 p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setPaxCount(prev => Math.max(1, prev - 1))}
-                    className="w-5 h-5 bg-white hover:bg-stone-200 rounded font-bold text-stone-700 flex items-center justify-center cursor-pointer shadow-2xs text-xs"
-                  >-</button>
-                  <button
-                    type="button"
-                    onClick={() => setPaxCount(prev => prev + 1)}
-                    className="w-5 h-5 bg-white hover:bg-stone-200 rounded font-bold text-stone-700 flex items-center justify-center cursor-pointer shadow-2xs text-xs"
-                  >+</button>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  {/* Customer Name */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                    <input
+                      type="text"
+                      maxLength={40}
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="Guest Name"
+                      className="w-full bg-transparent text-stone-900 text-xs focus:outline-none placeholder:text-stone-400"
+                    />
+                  </div>
+
+                  {/* Staff Selector */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-stone-400 uppercase">Staff:</span>
+                    <select
+                      value={selectedStaffName}
+                      onChange={(e) => setSelectedStaffName(e.target.value)}
+                      className="bg-transparent font-medium text-stone-900 text-xs focus:outline-none cursor-pointer text-right max-w-[90px] truncate"
+                    >
+                      {staffList.map(s => (
+                        <option key={s.id} value={s.name}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  {/* Token Number */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-stone-400 uppercase">Token:</span>
+                    <span className="font-mono font-bold text-emerald-700 text-xs bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      {activeOrderForSelectedTable ? `#${activeOrderForSelectedTable.id.slice(-6)}` : "Auto-Gen"}
+                    </span>
+                  </div>
 
-              {/* Box 5: Add Customer */}
-              <div className="bg-white p-1.5 rounded-lg border border-stone-200 shadow-2xs flex flex-col justify-between min-h-[42px]">
-                <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider block">ADD CUSTOMER</span>
-                <input
-                  type="text"
-                  maxLength={40}
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Guest Name"
-                  className="w-full bg-transparent font-medium text-stone-900 text-[10px] focus:outline-none placeholder:text-stone-300 py-0.5"
-                />
-              </div>
-            </div>
+                  {/* Staff Selector */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-stone-400 uppercase">Staff:</span>
+                    <select
+                      value={selectedStaffName}
+                      onChange={(e) => setSelectedStaffName(e.target.value)}
+                      className="bg-transparent font-medium text-stone-900 text-xs focus:outline-none cursor-pointer text-right max-w-[90px] truncate"
+                    >
+                      {staffList.map(s => (
+                        <option key={s.id} value={s.name}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
-            {/* Extended Contact Fields when Customer details are present or for Delivery */}
-            {(customerName || orderType === "delivery") && (
-              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                <input
-                  type="text"
-                  maxLength={15}
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value.replace(/[^\d+ -]/g, ""))}
-                  placeholder="Phone No. (Optional)"
-                  className="bg-white border border-stone-200 rounded-lg py-1 px-2 text-[10px] focus:outline-none focus:border-[#C67C4E]"
-                />
-                {orderType === "delivery" ? (
-                  <input
-                    type="text"
-                    maxLength={100}
-                    value={customerAddress}
-                    onChange={(e) => setCustomerAddress(e.target.value)}
-                    placeholder="Delivery Address *"
-                    className="bg-white border border-stone-200 rounded-lg py-1 px-2 text-[10px] focus:outline-none focus:border-purple-600"
-                  />
-                ) : (
-                  <input
-                    type="email"
-                    maxLength={50}
-                    value={customerEmail}
-                    onChange={(e) => setCustomerEmail(e.target.value)}
-                    placeholder="Email (Optional)"
-                    className="bg-white border border-stone-200 rounded-lg py-1 px-2 text-[10px] focus:outline-none focus:border-[#C67C4E]"
-                  />
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  {/* Customer Name */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                    <input
+                      type="text"
+                      maxLength={40}
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="Customer Name"
+                      className="w-full bg-transparent text-stone-900 text-xs focus:outline-none placeholder:text-stone-400"
+                    />
+                  </div>
+
+                  {/* Customer Phone */}
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                    <input
+                      type="text"
+                      maxLength={15}
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value.replace(/[^\d+ -]/g, ""))}
+                      placeholder="Phone (Optional)"
+                      className="w-full bg-transparent text-stone-900 text-xs focus:outline-none placeholder:text-stone-400"
+                    />
+                  </div>
+                </div>
+
+                {orderType === "delivery" && (
+                  <div className="bg-white px-2.5 py-1.5 rounded-xl border border-stone-200 shadow-2xs flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                    <input
+                      type="text"
+                      maxLength={100}
+                      value={customerAddress}
+                      onChange={(e) => setCustomerAddress(e.target.value)}
+                      placeholder="Delivery Address *"
+                      className="w-full bg-transparent text-stone-900 text-xs focus:outline-none placeholder:text-stone-400"
+                    />
+                  </div>
                 )}
-              </div>
+              </>
             )}
 
             {/* Active Table Notification & Quick Split/Transfer Pills */}
             {activeOrderForSelectedTable && (
-              <div className="p-1.5 bg-amber-50 border border-amber-250 text-amber-900 rounded-lg flex items-center justify-between gap-1 font-medium text-[9px]">
+              <div className="p-2 bg-amber-50 border border-amber-250 text-amber-900 rounded-xl flex items-center justify-between gap-1 font-medium text-[10px]">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full flex-shrink-0 animate-pulse" />
-                  <span className="truncate font-semibold">Active: ₹{activeOrderForSelectedTable.grandTotal}</span>
+                  <span className="w-2 h-2 bg-amber-500 rounded-full flex-shrink-0 animate-pulse" />
+                  <span className="truncate font-bold">Active Bill: ₹{activeOrderForSelectedTable.grandTotal}</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
@@ -1913,9 +2504,9 @@ export default function PosBillingPortal({
                       setSplitTargetOrder(activeOrderForSelectedTable);
                       setShowSplitModal(true);
                     }}
-                    className="px-1.5 py-0.5 bg-[#d4af37]/20 hover:bg-[#d4af37]/30 text-[#886915] font-bold rounded flex items-center gap-1 cursor-pointer text-[9px]"
+                    className="px-2 py-0.5 bg-amber-200/70 hover:bg-amber-200 text-amber-900 font-bold rounded-lg flex items-center gap-1 cursor-pointer text-[9px]"
                   >
-                    <Receipt className="w-2.5 h-2.5" />
+                    <Receipt className="w-3 h-3" />
                     <span>Split</span>
                   </button>
                   <button
@@ -1925,9 +2516,9 @@ export default function PosBillingPortal({
                       setTransferSourceOrder(activeOrderForSelectedTable);
                       setShowTransferModal(true);
                     }}
-                    className="px-1.5 py-0.5 bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold rounded flex items-center gap-1 cursor-pointer text-[9px]"
+                    className="px-2 py-0.5 bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold rounded-lg flex items-center gap-1 cursor-pointer text-[9px]"
                   >
-                    <ArrowRightLeft className="w-2.5 h-2.5" />
+                    <ArrowRightLeft className="w-3 h-3" />
                     <span>Transfer</span>
                   </button>
                 </div>
@@ -1936,15 +2527,15 @@ export default function PosBillingPortal({
           </div>
 
           {/* CART ITEMS CONTAINER WITH KOT GROUPING */}
-          <div className="flex-grow overflow-y-auto max-h-[34vh] xl:max-h-[40vh] 2xl:max-h-[44vh] p-2.5 sm:p-3 space-y-3 min-h-[160px] bg-stone-50/50">
+          <div className="flex-grow overflow-y-auto max-h-[34vh] xl:max-h-[38vh] 2xl:max-h-[42vh] p-2.5 sm:p-3 space-y-3 min-h-[160px] bg-stone-50/40">
             {cart.length === 0 ? (
-              <div className="py-8 text-center text-stone-400 flex flex-col items-center justify-center gap-1.5">
-                <div className="p-3 bg-stone-100 rounded-full text-stone-300">
+              <div className="py-10 text-center text-stone-400 flex flex-col items-center justify-center gap-2">
+                <div className="p-3 bg-stone-100 rounded-2xl text-stone-300">
                   <ShoppingCart className="w-6 h-6" />
                 </div>
                 <div>
-                  <p className="font-semibold text-stone-600 text-xs">POS Cart is empty</p>
-                  <p className="text-[9px] text-stone-400">Click catalog items to populate order</p>
+                  <p className="font-semibold text-stone-700 text-xs">POS Cart is empty</p>
+                  <p className="text-[10px] text-stone-400 mt-0.5">Click catalog dishes to populate order</p>
                 </div>
               </div>
             ) : (
@@ -1953,16 +2544,16 @@ export default function PosBillingPortal({
                 {groupedKotItems.printedBatches.map((batch, idx) => (
                   <div key={batch.kotNumber || `batch-${idx}`} className="space-y-1.5">
                     {/* Printed KOT Header */}
-                    <div className="flex items-center justify-between bg-purple-100 border-l-4 border-purple-600 px-2 py-1 rounded-r-md text-[9px] font-mono text-purple-900 font-bold">
+                    <div className="flex items-center justify-between bg-purple-100/80 border-l-4 border-purple-600 px-2 py-1 rounded-r-lg text-[9px] font-mono text-purple-900 font-bold">
                       <span className="flex items-center gap-1">
                         <UtensilsCrossed className="w-3 h-3 text-purple-700" />
                         <span>{batch.kotNumber || "KOT BATCH"}</span>
                       </span>
-                      <span className="text-purple-700 text-[8px] bg-purple-200 px-1 py-0.2 rounded font-mono">PRINTED</span>
+                      <span className="text-purple-700 text-[8px] bg-purple-200 px-1.5 py-0.2 rounded font-mono font-bold">PRINTED</span>
                     </div>
 
                     {/* Batch Items */}
-                    <div className="space-y-1.5 bg-white p-2 rounded-lg border border-purple-100 shadow-2xs divide-y divide-stone-100">
+                    <div className="space-y-1.5 bg-white p-2 rounded-xl border border-purple-100 shadow-2xs divide-y divide-stone-100">
                       {batch.items.map(item => {
                         const isEditing = editingItemId === item.id;
                         const lineItemTotal = ((item.price * item.quantity) - (item.price * item.quantity * (item.discount / 100)));
@@ -1974,13 +2565,13 @@ export default function PosBillingPortal({
                                 <div className="font-bold text-stone-900 flex items-center gap-1 flex-wrap text-xs">
                                   <span className="truncate max-w-[140px]" title={item.name}>{item.name}</span>
                                   {item.customization && (
-                                    <span className="text-[8px] italic text-[#C67C4E] block truncate max-w-[140px]" title={item.customization}>
+                                    <span className="text-[9px] text-amber-800 bg-amber-50 px-1 rounded block truncate max-w-[140px]" title={item.customization}>
                                       Note: {item.customization}
                                     </span>
                                   )}
                                 </div>
                                 <div className="text-[10px] font-mono text-stone-500">
-                                  ₹{item.price} x {item.quantity} {item.discount > 0 && <span className="text-green-600 font-bold">(-{item.discount}%)</span>}
+                                  ₹{item.price} x {item.quantity} {item.discount > 0 && <span className="text-emerald-600 font-bold">(-{item.discount}%)</span>}
                                 </div>
                               </div>
 
@@ -1989,12 +2580,12 @@ export default function PosBillingPortal({
                                   ₹{lineItemTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
                                 </span>
 
-                                <div className="flex items-center border border-stone-200 rounded bg-stone-50 h-5 overflow-hidden select-none ml-auto">
+                                <div className="flex items-center border border-stone-200 rounded-lg bg-stone-50 h-5 overflow-hidden select-none ml-auto">
                                   <button
                                     type="button"
                                     onClick={() => handleAdjustQuantity(item.id, -1)}
                                     className="px-1.5 text-stone-500 hover:bg-stone-200 cursor-pointer h-full font-bold text-xs"
-                                  >-</button>
+                                  >−</button>
                                   <span className="px-1.5 font-mono text-xs font-bold text-stone-900">{item.quantity}</span>
                                   <button
                                     type="button"
@@ -2008,7 +2599,7 @@ export default function PosBillingPortal({
                             {/* Item Actions */}
                             <div className="flex items-center justify-between text-[8px] pt-0.5">
                               {isEditing ? (
-                                <div className="flex gap-1 items-center bg-stone-50 p-1 rounded border border-stone-200 w-full">
+                                <div className="flex gap-1 items-center bg-stone-50 p-1 rounded-lg border border-stone-200 w-full">
                                   <input
                                     type="number"
                                     value={editPriceVal}
@@ -2025,7 +2616,7 @@ export default function PosBillingPortal({
                                         setEditingItemId(null);
                                       }
                                     }}
-                                    className="px-1.5 py-0.5 bg-green-600 text-white rounded font-bold cursor-pointer"
+                                    className="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold cursor-pointer"
                                   >Save</button>
                                   <button
                                     type="button"
@@ -2042,14 +2633,14 @@ export default function PosBillingPortal({
                                       setEditPriceVal(item.price.toString());
                                       setEditDiscountVal(item.discount.toString());
                                     }}
-                                    className="text-[#C67C4E] hover:underline font-bold font-mono flex items-center gap-0.5 cursor-pointer"
+                                    className="text-stone-500 hover:text-stone-900 font-bold font-mono flex items-center gap-0.5 cursor-pointer"
                                   >
                                     <Edit3 className="w-2.5 h-2.5" /> Edit
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveFromCart(item.id)}
-                                    className="text-red-500 hover:underline font-bold font-mono flex items-center gap-0.5 cursor-pointer"
+                                    className="text-rose-600 hover:underline font-bold font-mono flex items-center gap-0.5 cursor-pointer"
                                   >
                                     <Trash2 className="w-2.5 h-2.5" /> Remove
                                   </button>
@@ -2067,16 +2658,16 @@ export default function PosBillingPortal({
                 {groupedKotItems.unprintedItems.length > 0 && (
                   <div className="space-y-1.5">
                     {/* Unprinted KOT Header */}
-                    <div className="flex items-center justify-between bg-amber-100 border-l-4 border-amber-500 px-2 py-1 rounded-r-md text-[9px] font-mono text-amber-900 font-bold">
+                    <div className="flex items-center justify-between bg-amber-100/90 border-l-4 border-amber-500 px-2 py-1 rounded-r-lg text-[9px] font-mono text-amber-900 font-bold">
                       <span className="flex items-center gap-1">
                         <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                        <span>NEW ITEMS (UNPRINTED)</span>
+                        <span>NEW ITEMS (READY TO SEND)</span>
                       </span>
-                      <span className="text-amber-800 text-[8px] bg-amber-200 px-1 py-0.2 rounded font-mono">READY</span>
+                      <span className="text-amber-800 text-[8px] bg-amber-200 px-1.5 py-0.2 rounded font-mono font-bold">UNSENT</span>
                     </div>
 
                     {/* Unprinted Items List */}
-                    <div className="space-y-1.5 bg-white p-2 rounded-lg border border-amber-200/80 shadow-2xs divide-y divide-stone-100">
+                    <div className="space-y-1.5 bg-white p-2 rounded-xl border border-amber-200/80 shadow-2xs divide-y divide-stone-100">
                       {groupedKotItems.unprintedItems.map(item => {
                         const isEditing = editingItemId === item.id;
                         const lineItemTotal = ((item.price * item.quantity) - (item.price * item.quantity * (item.discount / 100)));
@@ -2087,17 +2678,17 @@ export default function PosBillingPortal({
                               <div className="space-y-0.5 min-w-0 flex-1">
                                 <div className="font-bold text-stone-900 flex items-center gap-1 flex-wrap text-xs">
                                   <span className="truncate max-w-[140px]" title={item.name}>{item.name}</span>
-                                  <span className="bg-amber-50 border border-amber-200 text-amber-800 text-[7px] font-bold px-1 py-0.2 rounded font-mono animate-pulse">
+                                  <span className="bg-amber-100 text-amber-800 text-[7px] font-bold px-1 py-0.2 rounded font-mono">
                                     NEW
                                   </span>
                                   {item.customization && (
-                                    <span className="text-[8px] italic text-[#C67C4E] block truncate max-w-[140px]" title={item.customization}>
+                                    <span className="text-[9px] text-amber-800 bg-amber-50 px-1 rounded block truncate max-w-[140px]" title={item.customization}>
                                       Note: {item.customization}
                                     </span>
                                   )}
                                 </div>
                                 <div className="text-[10px] font-mono text-stone-500">
-                                  ₹{item.price} x {item.quantity} {item.discount > 0 && <span className="text-green-600 font-bold">(-{item.discount}%)</span>}
+                                  ₹{item.price} x {item.quantity} {item.discount > 0 && <span className="text-emerald-600 font-bold">(-{item.discount}%)</span>}
                                 </div>
                               </div>
 
@@ -2106,12 +2697,12 @@ export default function PosBillingPortal({
                                   ₹{lineItemTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
                                 </span>
 
-                                <div className="flex items-center border border-stone-200 rounded bg-stone-50 h-5 overflow-hidden select-none ml-auto">
+                                <div className="flex items-center border border-stone-200 rounded-lg bg-stone-50 h-5 overflow-hidden select-none ml-auto">
                                   <button
                                     type="button"
                                     onClick={() => handleAdjustQuantity(item.id, -1)}
                                     className="px-1.5 text-stone-500 hover:bg-stone-200 cursor-pointer h-full font-bold text-xs"
-                                  >-</button>
+                                  >−</button>
                                   <span className="px-1.5 font-mono text-xs font-bold text-stone-900">{item.quantity}</span>
                                   <button
                                     type="button"
@@ -2125,7 +2716,7 @@ export default function PosBillingPortal({
                             {/* Item Actions */}
                             <div className="flex items-center justify-between text-[8px] pt-0.5">
                               {isEditing ? (
-                                <div className="flex gap-1 items-center bg-stone-50 p-1 rounded border border-stone-200 w-full">
+                                <div className="flex gap-1 items-center bg-stone-50 p-1 rounded-lg border border-stone-200 w-full">
                                   <input
                                     type="number"
                                     value={editPriceVal}
@@ -2142,7 +2733,7 @@ export default function PosBillingPortal({
                                         setEditingItemId(null);
                                       }
                                     }}
-                                    className="px-1.5 py-0.5 bg-green-600 text-white rounded font-bold cursor-pointer"
+                                    className="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold cursor-pointer"
                                   >Save</button>
                                   <button
                                     type="button"
@@ -2159,14 +2750,14 @@ export default function PosBillingPortal({
                                       setEditPriceVal(item.price.toString());
                                       setEditDiscountVal(item.discount.toString());
                                     }}
-                                    className="text-[#C67C4E] hover:underline font-bold font-mono flex items-center gap-0.5 cursor-pointer"
+                                    className="text-stone-500 hover:text-stone-900 font-bold font-mono flex items-center gap-0.5 cursor-pointer"
                                   >
                                     <Edit3 className="w-2.5 h-2.5" /> Edit
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveFromCart(item.id)}
-                                    className="text-red-500 hover:underline font-bold font-mono flex items-center gap-0.5 cursor-pointer"
+                                    className="text-rose-600 hover:underline font-bold font-mono flex items-center gap-0.5 cursor-pointer"
                                   >
                                     <Trash2 className="w-2.5 h-2.5" /> Remove
                                   </button>
@@ -2183,17 +2774,22 @@ export default function PosBillingPortal({
             )}
           </div>
 
-          {/* TOTAL QUANTITY & GRAND TOTAL SUMMARY BANNER (Teal Theme) */}
-          <div className="bg-teal-700 text-white px-3 py-2 flex items-center justify-between font-mono shadow-xs border-t border-b border-teal-800 flex-shrink-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-teal-100 text-[11px] font-sans font-semibold">Quantity:</span>
-              <span className="bg-teal-900 text-teal-100 px-2 py-0.5 rounded font-bold text-xs border border-teal-600/50">
+          {/* TOTAL QUANTITY & GRAND TOTAL SUMMARY BANNER */}
+          <div className="bg-stone-900 text-white px-3.5 py-2.5 flex items-center justify-between font-mono shadow-sm flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-stone-300 text-xs font-sans">Items:</span>
+              <span className="bg-stone-800 text-emerald-400 px-2 py-0.5 rounded-md font-bold text-xs border border-stone-700">
                 {totalCartQuantity}
               </span>
+              {cartTotals.itemDiscounts + cartTotals.couponDiscount > 0 && (
+                <span className="text-amber-400 text-[10px] font-sans">
+                  Saved ₹{cartTotals.itemDiscounts + cartTotals.couponDiscount}
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-teal-100 text-[11px] font-sans font-semibold">Total (With Taxes):</span>
-              <span className="text-white font-bold text-sm tracking-tight">
+            <div className="flex items-center gap-2">
+              <span className="text-stone-400 text-xs font-sans">Grand Total:</span>
+              <span className="text-white font-black text-base tracking-tight text-emerald-400">
                 ₹{cartTotals.grandTotal.toLocaleString("en-IN")}
               </span>
             </div>
@@ -2201,38 +2797,75 @@ export default function PosBillingPortal({
 
           {/* ORDER INSTRUCTIONS INPUT */}
           <div className="p-2 bg-stone-50 border-b border-stone-200 flex-shrink-0">
-            <div className="flex items-center gap-1.5 bg-white border border-stone-300 rounded-lg px-2 py-1 shadow-2xs">
+            <div className="flex items-center gap-1.5 bg-white border border-stone-250 rounded-xl px-2.5 py-1.5 shadow-2xs">
               <MessageSquare className="w-3.5 h-3.5 text-stone-400 shrink-0" />
               <input
                 type="text"
                 maxLength={150}
                 value={orderInstructions}
                 onChange={(e) => setOrderInstructions(e.target.value)}
-                placeholder="Order Instructions (e.g. Less spicy, Chef notes...)"
+                placeholder="Kitchen notes (e.g. Less spicy, Jain preparation)..."
                 className="w-full text-[10px] text-stone-800 placeholder:text-stone-400 focus:outline-none"
               />
             </div>
           </div>
 
-          {/* BOTTOM STREAMLINED ACTION BUTTONS BAR */}
-          <div className="p-2 sm:p-2.5 bg-stone-900 text-white space-y-2 flex-shrink-0">
-            <div className="grid grid-cols-4 gap-1.5">
-              {/* 1. CANCEL */}
+          {/* BOTTOM HIGH-SPEED ACTION BUTTONS */}
+          <div className="p-3 bg-white border-t border-stone-200 space-y-2 flex-shrink-0">
+            {/* Utility row: Clear Cart & View Bill */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={handleClearCart}
                 disabled={cart.length === 0}
-                className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0
-                  ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-red-600 hover:bg-red-700 text-white shadow-xs cursor-pointer active:scale-95"
-                  }`}
-                title="Clear all cart items"
+                className={`py-1.5 px-2 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                  cart.length === 0
+                    ? "bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200"
+                    : "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer active:scale-95"
+                }`}
               >
-                <Trash2 className="w-3 h-3" />
-                <span>CANCEL</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Cart</span>
               </button>
 
-              {/* 2. SETTLE NOW */}
+              <button
+                type="button"
+                onClick={handleOpenBillPreview}
+                disabled={cart.length === 0 || isFinalizing}
+                className={`py-1.5 px-2 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                  cart.length === 0 || isFinalizing
+                    ? "bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200"
+                    : "bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 cursor-pointer active:scale-95"
+                }`}
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>View Bill</span>
+              </button>
+            </div>
+
+            {/* Primary actions row: KOT & Settle */}
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              {/* 1. KOT BUTTON */}
+              <button
+                type="button"
+                onClick={handleSaveOrder}
+                disabled={cart.length === 0 || isPrintingKOT || isFinalizing}
+                className={`py-3 px-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xs ${
+                  cart.length === 0 || isPrintingKOT || isFinalizing
+                    ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                    : "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-98 shadow-indigo-200 hover:shadow-md"
+                }`}
+                title="Print Kitchen Order Ticket"
+              >
+                {isPrintingKOT ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <UtensilsCrossed className="w-4 h-4" />
+                )}
+                <span>{isPrintingKOT ? "Printing..." : "Send KOT"}</span>
+              </button>
+
+              {/* 2. SETTLE & PAY BUTTON */}
               <button
                 type="button"
                 onClick={async () => {
@@ -2246,44 +2879,15 @@ export default function PosBillingPortal({
                   }
                 }}
                 disabled={cart.length === 0 && !activeOrderForSelectedTable}
-                className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0 && !activeOrderForSelectedTable
-                  ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs cursor-pointer active:scale-95"
-                  }`}
+                className={`py-3 px-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xs ${
+                  cart.length === 0 && !activeOrderForSelectedTable
+                    ? "bg-stone-200 text-stone-400 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-98 shadow-emerald-200 hover:shadow-md"
+                }`}
                 title="Settle Bill & Collect Payment"
               >
-                <span>⚡</span>
-                <span>SETTLE</span>
-              </button>
-
-              {/* 3. VIEW BILL */}
-              <button
-                type="button"
-                onClick={handleOpenBillPreview}
-                disabled={cart.length === 0 || isFinalizing}
-                className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0 || isFinalizing
-                  ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-[#C67C4E] hover:bg-[#aa7c11] text-white shadow-xs cursor-pointer active:scale-95"
-                  }`}
-                title="View Bill Preview & Print"
-              >
-                <Receipt className="w-3 h-3" />
-                <span>VIEW BILL</span>
-              </button>
-
-              {/* 4. PRINT KOT */}
-              <button
-                type="button"
-                onClick={handleSaveOrder}
-                disabled={cart.length === 0 || isPrintingKOT || isFinalizing}
-                className={`py-2 px-1 rounded-lg font-mono font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${cart.length === 0 || isPrintingKOT || isFinalizing
-                  ? "bg-stone-800 text-stone-500 cursor-not-allowed border border-stone-700/50"
-                  : "bg-purple-600 hover:bg-purple-500 text-white shadow-xs cursor-pointer active:scale-95"
-                  }`}
-                title="Print Kitchen Order Ticket"
-              >
-                <UtensilsCrossed className="w-3 h-3" />
-                <span>KOT</span>
+                <Sparkles className="w-4 h-4" />
+                <span>Pay & Settle</span>
               </button>
             </div>
           </div>
