@@ -314,6 +314,25 @@ export class PrinterManager {
       return this.cachedPrinters;
     }
 
+    // Direct Windows Native Printer Discovery in Electron Desktop Mode
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron) {
+      try {
+        const electronPrinters = await window.electronAPI.getPrinters();
+        const printerList: string[] = (electronPrinters || []).map((p: any) => p.name);
+        console.log(`[PrinterManager] Discovered ${printerList.length} Windows printers via Electron:`, printerList);
+        const classified = printerList.map(name => this.classifyPrinter(name));
+        classified.sort((a, b) => {
+          if (a.isVirtual !== b.isVirtual) return a.isVirtual ? 1 : -1;
+          return b.thermalScore - a.thermalScore;
+        });
+        this.cachedPrinters = classified;
+        this.isInitialized = true;
+        return classified;
+      } catch (err) {
+        console.warn("[PrinterManager] Failed querying Electron system printers:", err);
+      }
+    }
+
     try {
       let isConnected = false;
       try {
@@ -820,7 +839,35 @@ export class PrinterManager {
       }
     }
 
-    // 6. Dispatch via JSPrintManager ClientPrintJob
+    // 6. In Electron Desktop Mode, dispatch silent print directly to Windows printer!
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+      const testHtml = `
+        <div style="text-align: center; font-family: monospace; padding: 10px;">
+          <h2 style="margin: 0; font-size: 18px;">WEBRAJYA POS</h2>
+          <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+          <h3 style="margin: 4px 0; font-size: 15px;">PRINTER TEST</h3>
+          <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+          <div style="text-align: left; font-size: 12px; margin: 6px 0;">
+            <p style="margin: 2px 0;"><strong>Printer:</strong> ${printerToUse}</p>
+            <p style="margin: 2px 0;"><strong>Branch:</strong> ${ctx.branchName || "Main Outlet"}</p>
+            <p style="margin: 2px 0;"><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            <p style="margin: 2px 0;"><strong>Time:</strong> ${new Date().toLocaleTimeString()}</p>
+          </div>
+          <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+          <p style="margin: 8px 0; font-weight: bold; font-size: 13px;">✓ Silent Direct Print Verified!</p>
+          <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+        </div>
+      `;
+      const res = await window.electronAPI.silentPrint({
+        htmlContent: testHtml,
+        printerName: printerToUse,
+        paperWidthMm: config.paperWidth === "58mm" ? 58 : 80,
+        silent: true,
+      });
+      return { success: res.success, printerUsed: res.printerUsed || printerToUse, error: res.error };
+    }
+
+    // 7. Dispatch via JSPrintManager ClientPrintJob (Browser fallback)
     const bytes = builder.compile();
     const cpj = new JSPM.ClientPrintJob();
     cpj.clientPrinter = new JSPM.InstalledPrinter(printerToUse, true);

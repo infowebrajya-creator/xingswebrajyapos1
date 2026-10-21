@@ -5,23 +5,23 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-preload.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && npm run build:electron",
     "start": "node dist/server.cjs",
     "test": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:dev": "npm run build:electron && concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "npm run build && electron-builder"
   },
-  "main": "electron/main.ts",
+  "main": "dist/electron-main.cjs",
   "build": {
-    "appId": "com.thexingskitchen.pos",
-    "productName": "THE XINGS KITCHEN POS",
+    "appId": "com.webrajya.pos",
+    "productName": "WEBRAJYA POS",
     "directories": {
       "output": "dist_electron"
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
       "package.json"
     ],
     "win": {
@@ -30,7 +30,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "THE XINGS KITCHEN POS"
+      "shortcutName": "WEBRAJYA POS"
     }
   },
   "dependencies": {

@@ -45,6 +45,7 @@ export default function PrintersConfigTab() {
 
   // Tenant context
   const tenantContext = PrinterManager.getActiveTenantContext();
+  const isElectron = typeof window !== "undefined" && !!window.electronAPI?.isElectron;
 
   // Scan installed system printers via PrinterManager
   const scanPrinters = async (force: boolean = false) => {
@@ -71,17 +72,24 @@ export default function PrintersConfigTab() {
   };
 
   useEffect(() => {
-    // Initialize connection and scan printers
-    JSPrintManagerService.init().then(() => {
-      scanPrinters(true);
-    });
+    let unsubscribe: (() => void) | undefined;
 
-    const unsubscribe = JSPrintManagerService.onStatusChange((status) => {
-      setJspmStatus(status);
-      if (status.isConnected) {
+    // In Electron Desktop, scan native Windows printers immediately
+    if (isElectron) {
+      scanPrinters(true);
+    } else {
+      // In Web Browser, initialize JSPrintManager WebSocket connection
+      JSPrintManagerService.init().then(() => {
         scanPrinters(true);
-      }
-    });
+      });
+
+      unsubscribe = JSPrintManagerService.onStatusChange((status) => {
+        setJspmStatus(status);
+        if (status.isConnected) {
+          scanPrinters(true);
+        }
+      });
+    }
 
     const handleConfigUpdate = (e: any) => {
       if (e.detail) {
@@ -99,7 +107,7 @@ export default function PrintersConfigTab() {
     const interval = setInterval(handleQueueUpdate, 3000);
 
     return () => {
-      unsubscribe();
+      if (unsubscribe) unsubscribe();
       window.removeEventListener("printer_config_updated", handleConfigUpdate);
       window.removeEventListener("print_queue_updated", handleQueueUpdate);
       clearInterval(interval);
@@ -241,28 +249,30 @@ export default function PrintersConfigTab() {
         {/* Left column: Status, Discovered Printers, and Settings */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* JSPrintManager Connection Bridge Telemetry */}
+          {/* Windows Desktop Native Printing Telemetry OR JSPrintManager Telemetry */}
           <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-2xs">
             <h3 className="text-2xs font-mono font-bold text-stone-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-stone-400" />
-              JSPRINTMANAGER DESKTOP CLIENT TELEMETRY
+              {isElectron ? "WINDOWS ELECTRON DESKTOP — NATIVE SILENT PRINTING" : "JSPRINTMANAGER DESKTOP CLIENT TELEMETRY"}
             </h3>
             
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-stone-50 p-4 border border-stone-200 rounded-xl">
               <div className="flex items-center gap-3">
                 <span className={`p-2.5 rounded-xl border ${
-                  jspmStatus.isConnected 
-                    ? "bg-green-50 border-green-200 text-green-600" 
+                  isElectron || jspmStatus.isConnected 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-600" 
                     : "bg-amber-50 border-amber-200 text-amber-600"
                 }`}>
-                  {jspmStatus.isConnected ? <Wifi className="w-5 h-5" /> : <WifiOff className="w-5 h-5" />}
+                  {isElectron || jspmStatus.isConnected ? <Wifi className="w-5 h-5" /> : <WifiOff className="w-5 h-5" />}
                 </span>
                 <div>
                   <span className="text-[10px] font-mono font-bold text-stone-400 uppercase tracking-wider leading-none block mb-1">
-                    WebSocket Connection State
+                    {isElectron ? "Desktop Spooler Status" : "WebSocket Connection State"}
                   </span>
                   <span className="text-sm font-bold text-stone-900 block leading-tight">
-                    {jspmStatus.isConnected ? "CONNECTED — Direct Thermal Spooling Active" : `Bridge Offline — ${jspmStatus.label}`}
+                    {isElectron 
+                      ? "ACTIVE — 1-Tap Silent Direct Spooling (Zero Dialogs)" 
+                      : (jspmStatus.isConnected ? "CONNECTED — Direct Thermal Spooling Active" : `Bridge Offline — ${jspmStatus.label}`)}
                   </span>
                 </div>
               </div>
@@ -283,8 +293,8 @@ export default function PrintersConfigTab() {
               </div>
             </div>
 
-            {/* Offline troubleshooting banner */}
-            {!jspmStatus.isConnected && (
+            {/* Offline troubleshooting banner (Only in browser when not in Electron) */}
+            {!isElectron && !jspmStatus.isConnected && (
               <div className="mt-3 bg-amber-50 border border-amber-200 p-3.5 rounded-xl flex items-start justify-between gap-3">
                 <div className="flex gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />

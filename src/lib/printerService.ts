@@ -1217,7 +1217,40 @@ export class PhysicalThermalPrinter {
     options: any = {}
   ): void {
     const is80 = (options.paperWidth || settings?.paperWidth || "80mm") === "80mm";
-    
+
+    // Force light print mode (black on white) for physical receipt paper outputs!
+    const receiptHtml = this.generatePremiumReceiptHTML(type, data, settings, {
+      ...options,
+      darkPrintMode: false
+    });
+
+    // 1-TAP SILENT WINDOWS PRINTING (ELECTRON DESKTOP MODE)
+    if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.electronAPI?.silentPrint) {
+      try {
+        const config = PrinterManager.getConfiguredPrinter();
+        const targetPrinter = options.printerName || (type === "kot" || type === "kitchen-copy" ? config.kotPrinterName : config.receiptPrinterName);
+
+        window.electronAPI.silentPrint({
+          htmlContent: receiptHtml,
+          printerName: targetPrinter,
+          paperWidthMm: is80 ? 80 : 58,
+          silent: true,
+          copies: options.copies || 1,
+        }).then(res => {
+          if (!res.success) {
+            console.warn("[Electron Silent Print] Spooler reported issue:", res.error);
+          } else {
+            console.log(`[Electron Silent Print] 1-Tap silent print sent to "${res.printerUsed || targetPrinter}"`);
+          }
+        }).catch(err => {
+          console.error("[Electron Silent Print] Desktop silent print invocation failed:", err);
+        });
+        return;
+      } catch (err) {
+        console.warn("[Electron Silent Print] Fallback to browser print:", err);
+      }
+    }
+
     const iframe = document.createElement("iframe");
     iframe.style.position = "absolute";
     iframe.style.width = "0px";
@@ -1227,12 +1260,6 @@ export class PhysicalThermalPrinter {
 
     const doc = iframe.contentWindow?.document || iframe.contentDocument;
     if (!doc) return;
-
-    // Force light print mode (black on white) for physical receipt paper outputs!
-    const receiptHtml = this.generatePremiumReceiptHTML(type, data, settings, {
-      ...options,
-      darkPrintMode: false
-    });
 
     doc.open();
     doc.write(`
