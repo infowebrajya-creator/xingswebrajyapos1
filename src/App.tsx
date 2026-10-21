@@ -117,8 +117,8 @@ export default function App() {
     localStorage.removeItem("ij_admin_jwt");
     sessionStorage.removeItem("ij_admin_jwt");
     setAdminToken(null);
-    setView("menu");
-    navigateTo("/", { replace: true });
+    setView("admin");
+    navigateTo("/admin/login", { replace: true });
     setMenuList(LocalDB.getMenuItems());
   };
 

@@ -104,12 +104,19 @@ export function getScannedTableNumber(): string {
     }
   } catch (e) {}
 
-  // 3. Fallback to localStorage
-  try {
-    return localStorage.getItem("ij_scanned_table") || "";
-  } catch (e) {
-    return "";
+  // 3. Fallback to localStorage ONLY when on a customer table or menu route
+  if (typeof window !== "undefined") {
+    const isCustomerPath = window.location.pathname.startsWith("/table") || window.location.pathname.startsWith("/menu");
+    if (isCustomerPath) {
+      try {
+        return localStorage.getItem("ij_scanned_table") || "";
+      } catch (e) {
+        return "";
+      }
+    }
   }
+
+  return "";
 }
 
 /**
@@ -133,8 +140,8 @@ export function buildTableFullUrl(tableNumber: string | number): string {
 export function parseCurrentRoute(): ParsedRoute {
   if (typeof window === "undefined") {
     return {
-      view: "menu",
-      adminTab: "analytics",
+      view: "admin",
+      adminTab: "pos",
       reportsSubTab: "overview",
       menuSubTab: "items",
       rawPath: "/"
@@ -149,10 +156,13 @@ export function parseCurrentRoute(): ParsedRoute {
     path = hash.replace(/^#\/?/, "/");
   }
 
-  // Check if this is an admin route
-  const isAdmin = path === "/admin" || path.startsWith("/admin/");
+  // Check if explicit customer table QR route or /menu
+  const isTablePath = path.startsWith("/table/");
+  const searchParams = new URLSearchParams(window.location.search);
+  const hasTableQuery = searchParams.has("table") || searchParams.has("t");
+  const isMenuPath = path === "/menu" || path.startsWith("/menu/");
 
-  if (!isAdmin) {
+  if (isTablePath || hasTableQuery || isMenuPath) {
     const tableNumber = getScannedTableNumber() || undefined;
     return {
       view: "menu",
@@ -164,14 +174,19 @@ export function parseCurrentRoute(): ParsedRoute {
     };
   }
 
-  // Split path segments: e.g. /admin/reports/monthly -> ["admin", "reports", "monthly"]
+  // Default is always the POS Admin App!
   const cleanPath = path.replace(/\/+$/, ""); // trim trailing slash
   const segments = cleanPath.split("/").filter(Boolean); // ["admin", ...]
 
-  const secondSegment = (segments[1] || "dashboard").toLowerCase();
-  const thirdSegment = (segments[2] || "").toLowerCase();
+  let secondSegment = "pos";
+  if (segments[0] === "admin") {
+    secondSegment = (segments[1] || "pos").toLowerCase();
+  } else if (segments[0]) {
+    secondSegment = segments[0].toLowerCase();
+  }
 
-  const adminTab: AdminTab = VALID_ADMIN_TABS[secondSegment] || "analytics";
+  const thirdSegment = (segments[2] || "").toLowerCase();
+  const adminTab: AdminTab = VALID_ADMIN_TABS[secondSegment] || "pos";
 
   let reportsSubTab: ReportsSubTab = "overview";
   if (adminTab === "reports" && thirdSegment && VALID_REPORTS_SUBTABS[thirdSegment]) {
