@@ -2160,108 +2160,6 @@ export default function PosBillingPortal({
             </div>
           )}
 
-          {/* HORIZONTAL TABLES STRIP AT THE BOTTOM */}
-          <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-xs space-y-2 mt-auto">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-emerald-600" />
-                <span className="font-bold text-xs sm:text-sm text-stone-900 font-serif">
-                  Dining Tables
-                </span>
-                <span className="text-[10px] font-mono font-bold bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full border border-stone-200">
-                  {tables.length} Total
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  {tables.filter(t => t.status !== "Occupied" && !orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Free
-                </span>
-                <span className="flex items-center gap-1 text-[11px] font-medium text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/60">
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                  {tables.filter(t => t.status === "Occupied" || orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Active
-                </span>
-              </div>
-            </div>
-
-            {/* Horizontal Scrollable Square Table Tiles (4:4 cm ratio for enhanced visibility) */}
-            <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 pt-1 no-scrollbar select-none">
-              {tables.map(table => {
-                const activeOrd = orders.find(
-                  o => o.orderType === "dine-in" &&
-                    isSameTable(o.tableNumber, table.tableNumber) &&
-                    o.paymentStatus !== "Paid" &&
-                    o.orderStatus !== "Cancelled"
-                );
-                const hasOrder = !!activeOrd;
-                const isOccupied = table.status === "Occupied" || hasOrder;
-                const isSelected = isSameTable(selectedTable, table.tableNumber) && orderType === "dine-in";
-
-                return (
-                  <button
-                    key={table.id}
-                    type="button"
-                    onClick={() => {
-                      setOrderType("dine-in");
-                      handleTableChange(table.tableNumber);
-                    }}
-                    className={`w-[84px] h-[84px] sm:w-[92px] sm:h-[92px] shrink-0 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-between p-2 relative group ${
-                      isSelected
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/40 scale-105"
-                        : isOccupied
-                          ? "bg-rose-50 hover:bg-rose-100/90 text-rose-950 border-rose-200/90 shadow-2xs"
-                          : "bg-white hover:bg-emerald-50/40 text-stone-900 border-stone-200 hover:border-emerald-300 shadow-2xs"
-                    }`}
-                  >
-                    {/* Top Row: Status Dot & Guest Capacity */}
-                    <div className="w-full flex items-center justify-between text-[10px] leading-none">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${
-                        isSelected
-                          ? "bg-white"
-                          : isOccupied
-                            ? "bg-rose-500 animate-pulse"
-                            : "bg-emerald-500"
-                      }`} />
-                      <span className={`font-mono text-[9px] font-semibold ${
-                        isSelected ? "text-white/80" : "text-stone-400"
-                      }`}>
-                        {table.capacity}p
-                      </span>
-                    </div>
-
-                    {/* Center: Large Bold Table Number */}
-                    <div className="flex flex-col items-center justify-center my-0.5">
-                      <span className={`font-mono font-black text-base sm:text-lg tracking-tight ${
-                        isSelected ? "text-white" : isOccupied ? "text-rose-950" : "text-stone-900"
-                      }`}>
-                        T{table.tableNumber}
-                      </span>
-                    </div>
-
-                    {/* Bottom Row: Amount Badge or Status */}
-                    <div className="w-full flex items-center justify-center">
-                      {hasOrder ? (
-                        <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded-md truncate max-w-full ${
-                          isSelected
-                            ? "bg-white/20 text-white"
-                            : "bg-rose-100 text-rose-700 font-black"
-                        }`}>
-                          ₹{activeOrd.grandTotal}
-                        </span>
-                      ) : (
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                          isSelected ? "text-white/90" : "text-emerald-600"
-                        }`}>
-                          Free
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
         {/* RIGHT COLUMN: ACTIVE BILLING CART & SETTLEMENT PANEL */}
@@ -2836,6 +2734,123 @@ export default function PosBillingPortal({
 
         </div>
 
+      </div>
+
+      {/* 3. FIXED FULL-WIDTH STICKY BOTTOM TABLES STRIP */}
+      <div className="sticky bottom-0 z-30 bg-white/95 backdrop-blur-md border border-stone-200/90 rounded-2xl p-2.5 sm:p-3 shadow-lg mt-3">
+        <div className="flex flex-col md:flex-row md:items-center gap-2.5 md:gap-4 w-full">
+          {/* Left Summary: Dining Tables & Status Badges */}
+          <div className="flex items-center justify-between md:justify-start gap-2.5 shrink-0 md:pr-4 md:border-r border-stone-200">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-xs sm:text-sm text-stone-900 font-serif whitespace-nowrap">
+                    Dining Tables
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-stone-100 text-stone-600 px-1.5 py-0.2 rounded-full border border-stone-200">
+                    {tables.length} Total
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] font-semibold text-emerald-700 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    {tables.filter(t => t.status !== "Occupied" && !orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Free
+                  </span>
+                  <span className="text-[10px] font-semibold text-rose-700 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                    {tables.filter(t => t.status === "Occupied" || orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Active
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {selectedTable && orderType === "dine-in" && (
+              <span className="inline-flex md:hidden items-center gap-1 bg-emerald-600 text-white px-2 py-0.5 rounded-lg text-xs font-bold font-mono">
+                T{selectedTable} Selected
+              </span>
+            )}
+          </div>
+
+          {/* Horizontally Scrolling Square Table Tiles (4:4 cm / ~84x84px) */}
+          <div className="flex items-center gap-2.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar select-none flex-grow">
+            {tables.map(table => {
+              const activeOrd = orders.find(
+                o => o.orderType === "dine-in" &&
+                  isSameTable(o.tableNumber, table.tableNumber) &&
+                  o.paymentStatus !== "Paid" &&
+                  o.orderStatus !== "Cancelled"
+              );
+              const hasOrder = !!activeOrd;
+              const isOccupied = table.status === "Occupied" || hasOrder;
+              const isSelected = isSameTable(selectedTable, table.tableNumber) && orderType === "dine-in";
+
+              return (
+                <button
+                  key={table.id}
+                  type="button"
+                  onClick={() => {
+                    setOrderType("dine-in");
+                    handleTableChange(table.tableNumber);
+                  }}
+                  className={`w-[82px] h-[82px] sm:w-[88px] sm:h-[88px] shrink-0 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-between p-2 relative group ${
+                    isSelected
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/40 scale-105"
+                      : isOccupied
+                        ? "bg-rose-50 hover:bg-rose-100/90 text-rose-950 border-rose-200/90 shadow-2xs"
+                        : "bg-white hover:bg-emerald-50/40 text-stone-900 border-stone-200 hover:border-emerald-300 shadow-2xs"
+                  }`}
+                >
+                  {/* Top Row: Status Dot & Capacity */}
+                  <div className="w-full flex items-center justify-between text-[10px] leading-none">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${
+                      isSelected
+                        ? "bg-white"
+                        : isOccupied
+                          ? "bg-rose-500 animate-pulse"
+                          : "bg-emerald-500"
+                    }`} />
+                    <span className={`font-mono text-[9px] font-semibold ${
+                      isSelected ? "text-white/80" : "text-stone-400"
+                    }`}>
+                      {table.capacity}p
+                    </span>
+                  </div>
+
+                  {/* Center: Large Bold Table Number */}
+                  <div className="flex flex-col items-center justify-center my-0.5">
+                    <span className={`font-mono font-black text-base sm:text-lg tracking-tight ${
+                      isSelected ? "text-white" : isOccupied ? "text-rose-950" : "text-stone-900"
+                    }`}>
+                      T{table.tableNumber}
+                    </span>
+                  </div>
+
+                  {/* Bottom Row: Amount Badge or Status */}
+                  <div className="w-full flex items-center justify-center">
+                    {hasOrder ? (
+                      <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded-md truncate max-w-full ${
+                        isSelected
+                          ? "bg-white/20 text-white"
+                          : "bg-rose-100 text-rose-700 font-black"
+                      }`}>
+                        ₹{activeOrd.grandTotal}
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                        isSelected ? "text-white/90" : "text-emerald-600"
+                      }`}>
+                        Free
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* ======================================================== */}
