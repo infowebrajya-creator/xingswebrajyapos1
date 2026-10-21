@@ -85,8 +85,6 @@ export default function PosBillingPortal({
   const [paxCount, setPaxCount] = useState<number>(1);
   const [orderInstructions, setOrderInstructions] = useState<string>("");
 
-  // Table Rail Collapsible State (Auto-collapsed in Takeaway/Delivery)
-  const [isTablePanelCollapsed, setIsTablePanelCollapsed] = useState<boolean>(false);
 
   // Quick Catalog Filter States
   const [filterVegOnly, setFilterVegOnly] = useState<boolean>(false);
@@ -125,8 +123,8 @@ export default function PosBillingPortal({
   const speedSearchResults = useMemo(() => {
     const { query } = parseSearchInput(searchQuery);
     if (!query) {
-      // If search is empty, return top 8 popular dishes
-      return menuItems.filter(item => item.available !== false).slice(0, 8);
+      // Blank when idle - only show matching dishes when staff enters a search
+      return [];
     }
     const q = query.toLowerCase();
     return menuItems.filter(item => {
@@ -1391,22 +1389,16 @@ export default function PosBillingPortal({
           <span className="text-[10px] text-stone-400 hidden lg:inline font-mono">
             • Rapid Order Invoicing & Billing
           </span>
-          <button
-            type="button"
-            onClick={() => setIsTablePanelCollapsed(prev => !prev)}
-            className={`ml-2 px-2.5 py-0.5 rounded-lg text-[10px] font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer border ${
-              !isTablePanelCollapsed
-                ? "bg-stone-100 text-stone-700 border-stone-300 hover:bg-stone-200"
-                : "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-xs"
-            }`}
-            title="Toggle dining tables side drawer"
+          <div
+            className="ml-2 px-2.5 py-0.5 rounded-lg text-[10px] font-bold font-mono flex items-center gap-1.5 border bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs"
+            title="Dining tables overview"
           >
             <Layers className="w-3 h-3 text-emerald-600" />
             <span>Tables ({tables.length})</span>
             <span className="bg-emerald-600 text-white text-[8px] px-1.5 py-0.2 rounded-full">
-              {tables.filter(t => t.status === "Occupied").length}
+              {tables.filter(t => t.status === "Occupied").length} active
             </span>
-          </button>
+          </div>
         </div>
 
         {/* Controller selectors */}
@@ -1666,139 +1658,15 @@ export default function PosBillingPortal({
         )}
       </AnimatePresence>
 
-      {/* 2. EATSPACE 3-COLUMN POS BILLING WORKSPACE */}
+      {/* 2. MODERN SPEED POS BILLING WORKSPACE */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start w-full">
 
-        {/* COLUMN 1: LEFT TABLE DIRECTORY RAIL (Collapsible) */}
-        {!isTablePanelCollapsed && (
-          <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col gap-2.5 max-h-[calc(100vh-125px)] overflow-y-auto">
-            {/* Table Rail Header */}
-            <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-              <div className="flex items-center gap-1.5 font-bold text-xs text-stone-900 font-serif">
-                <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Dining Tables ({tables.length})</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-bold border border-emerald-200/60">
-                  {tables.filter(t => t.status === "Occupied").length} Active
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsTablePanelCollapsed(true)}
-                  className="p-1 hover:bg-stone-100 rounded-md text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
-                  title="Collapse Tables"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+        {/* LEFT COLUMN: BIG SEARCH + DYNAMIC DISH RESULTS (BLANK WHEN IDLE) + BOTTOM HORIZONTAL TABLES */}
+        <div className="lg:col-span-7 xl:col-span-8 2xl:col-span-8 flex flex-col gap-3 min-w-0 transition-all">
 
-            {/* Table Cards Modern Responsive Grid */}
-            <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-0.5">
-              {tables.map(table => {
-                const activeOrd = orders.find(
-                  o => o.orderType === "dine-in" &&
-                    isSameTable(o.tableNumber, table.tableNumber) &&
-                    o.paymentStatus !== "Paid" &&
-                    o.orderStatus !== "Cancelled"
-                );
-                const hasOrder = !!activeOrd;
-                const isOccupied = table.status === "Occupied" || hasOrder;
-                const isSelected = isSameTable(selectedTable, table.tableNumber) && orderType === "dine-in";
-
-                return (
-                  <div
-                    key={table.id}
-                    onClick={() => {
-                      setOrderType("dine-in");
-                      handleTableChange(table.tableNumber);
-                    }}
-                    className={`p-2.5 rounded-2xl border transition-all duration-150 cursor-pointer flex flex-col justify-between relative group ${
-                      isSelected
-                        ? "ring-2 ring-emerald-600 border-emerald-600 bg-emerald-50/40 shadow-sm scale-[1.02]"
-                        : isOccupied
-                          ? "bg-rose-50/70 border-rose-200/90 hover:border-rose-300 hover:shadow-xs"
-                          : "bg-white border-stone-200/90 hover:border-emerald-300 hover:bg-emerald-50/20 hover:shadow-xs"
-                    }`}
-                  >
-                    {/* Top Header Row: Seat Count & Status Badge */}
-                    <div className="w-full flex items-center justify-between gap-1">
-                      <span className="text-[10px] font-mono font-medium text-stone-500">
-                        {table.capacity}p
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-wider flex items-center gap-1 ${
-                          isOccupied
-                            ? "bg-rose-100/90 text-rose-700 border border-rose-200"
-                            : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                        }`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${isOccupied ? "bg-rose-500 animate-pulse" : "bg-emerald-500"}`} />
-                        <span>{isOccupied ? (hasOrder ? "Billed" : "Seated") : "Free"}</span>
-                      </span>
-                    </div>
-
-                    {/* Center Table Number & Name */}
-                    <div className="flex flex-col items-center justify-center gap-1 my-2">
-                      <div
-                        className={`w-10 h-10 rounded-xl font-mono font-bold text-sm flex items-center justify-center border transition-colors ${
-                          isSelected
-                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                            : isOccupied
-                              ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
-                              : "bg-stone-50 text-stone-800 border-stone-200 group-hover:border-emerald-300 group-hover:bg-emerald-50"
-                        }`}
-                      >
-                        T{table.tableNumber}
-                      </div>
-                      <span
-                        className={`text-[10px] font-medium truncate max-w-[95px] ${
-                          isOccupied ? "text-rose-900 font-semibold" : "text-stone-500"
-                        }`}
-                        title={activeOrd?.customerName || `Table #${table.tableNumber}`}
-                      >
-                        {activeOrd?.customerName || (isOccupied ? `Table #${table.tableNumber}` : "Available")}
-                      </span>
-                    </div>
-
-                    {/* Bottom Footer Row: Amount or Area */}
-                    <div className="w-full pt-1.5 border-t border-stone-150 flex items-center justify-center">
-                      {hasOrder ? (
-                        <span className="font-mono font-bold text-[10px] text-rose-700 bg-rose-100/80 px-2 py-0.5 rounded-full border border-rose-200/60">
-                          ₹{activeOrd.grandTotal}
-                        </span>
-                      ) : (
-                        <span className="text-[9px] text-stone-400 truncate max-w-[85px]">
-                          {table.seatingArea || "Main Hall"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* COLUMN 2: CENTER MENU - SPEED SEARCH COMMAND CENTER OR CATALOG GRID */}
-        <div className={`${isTablePanelCollapsed ? "lg:col-span-7 xl:col-span-8 2xl:col-span-8" : "lg:col-span-5 xl:col-span-5 2xl:col-span-5"} flex flex-col gap-3 min-w-0 transition-all`}>
-
-          {/* Top Control Bar: Mode Toggle & Utilities */}
+          {/* Top Bar: Mode Switcher, Active Table indicator & Utilities */}
           <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-stone-200 shadow-xs flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              {/* Expand tables button if collapsed */}
-              {isTablePanelCollapsed && (
-                <button
-                  type="button"
-                  onClick={() => setIsTablePanelCollapsed(false)}
-                  className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 rounded-xl text-xs font-bold font-mono flex items-center gap-1 cursor-pointer shrink-0"
-                  title="Expand Tables Drawer"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Tables</span>
-                </button>
-              )}
-
               {/* View Mode Toggle: [ ⚡ Speed Search ] vs [ 🗂️ Catalog Grid ] */}
               <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200/80">
                 <button
@@ -1829,6 +1697,13 @@ export default function PosBillingPortal({
                   <span>Catalog Grid</span>
                 </button>
               </div>
+
+              {selectedTable && orderType === "dine-in" && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl text-xs font-bold font-mono">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Table T{selectedTable}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -1858,109 +1733,73 @@ export default function PosBillingPortal({
             </div>
           </div>
 
-          {posViewMode === "search" ? (
-            /* =========================================================================
-               MODE A: SPEED SEARCH & ADD COMMAND CENTER (SEARCH & PUT THAT'S IT)
-               ========================================================================= */
-            <div className="flex flex-col gap-3">
-              {/* Command Search Input & Multiplier Display */}
-              <div className="bg-white p-3.5 rounded-2xl border border-stone-200 shadow-xs space-y-3">
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder="Search dish or code (e.g. 'chilli*2', 'coke 3') · Enter to add..."
-                    className="w-full pl-11 pr-24 py-3 bg-stone-50 border-2 border-stone-200 focus:border-stone-900 focus:bg-white rounded-xl text-sm font-semibold placeholder:font-normal placeholder:text-stone-400 focus:outline-none transition-all shadow-inner"
-                    autoFocus
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                    {searchQuery ? (
-                      <>
-                        {(() => {
-                          const { qty } = parseSearchInput(searchQuery);
-                          return qty > 1 ? (
-                            <span className="bg-amber-100 text-amber-900 font-mono font-bold text-xs px-2 py-0.5 rounded-md border border-amber-300">
-                              ×{qty}
-                            </span>
-                          ) : null;
-                        })()}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSearchQuery("");
-                            searchInputRef.current?.focus();
-                          }}
-                          className="text-stone-400 hover:text-stone-700 p-1 rounded-md cursor-pointer hover:bg-stone-200"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </>
-                    ) : (
-                      <span className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-stone-400 bg-stone-100 px-2 py-1 rounded-md border border-stone-200">
-                        <kbd className="font-semibold">/</kbd> focus
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Speed Dial Favorites (1-Tap Fast Addition) */}
-                {speedDialFavorites.length > 0 && (
-                  <div className="pt-0.5">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 font-mono flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
-                        Speed Dial (1-Tap Add)
-                      </span>
-                      <span className="text-[10px] text-stone-400">Click to add immediately</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-1.5">
-                      {speedDialFavorites.map((fav) => {
-                        const inCartCount = cart.filter(c => c.name === fav.name).reduce((sum, c) => sum + c.quantity, 0);
-                        return (
-                          <button
-                            key={fav.id}
-                            type="button"
-                            onClick={() => {
-                              handleAddRegularToCart(fav);
-                              searchInputRef.current?.focus();
-                            }}
-                            className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between group ${
-                              inCartCount > 0
-                                ? "bg-emerald-50/60 border-emerald-300 hover:border-emerald-400"
-                                : "bg-stone-50 hover:bg-stone-100 border-stone-200 hover:border-stone-300"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-1 w-full mb-1">
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${fav.isVeg !== false ? "bg-emerald-500" : "bg-red-500"}`} />
-                              {inCartCount > 0 && (
-                                <span className="text-[9px] font-mono font-bold bg-emerald-600 text-white px-1.5 py-0.2 rounded-full">
-                                  +{inCartCount}
-                                </span>
-                              )}
-                            </div>
-                            <p className="font-bold text-xs text-stone-800 line-clamp-1 group-hover:text-stone-950">
-                              {fav.name}
-                            </p>
-                            <p className="text-[11px] font-sans font-bold text-stone-600 mt-1">
-                              ₹{fav.price}
-                            </p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+          {/* Big Search Command Bar */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-stone-200 shadow-xs space-y-2">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-stone-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Type dish name or item code (e.g. 'paneer*2', 'coke 3') · Press Enter to add..."
+                className="w-full pl-13 pr-28 py-3.5 sm:py-4 bg-stone-50 border-2 border-stone-200 focus:border-stone-900 focus:bg-white rounded-2xl text-base sm:text-lg font-semibold placeholder:font-normal placeholder:text-stone-400 focus:outline-none transition-all shadow-inner"
+                autoFocus
+              />
+              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                {searchQuery ? (
+                  <>
+                    {(() => {
+                      const { qty } = parseSearchInput(searchQuery);
+                      return qty > 1 ? (
+                        <span className="bg-amber-100 text-amber-900 font-mono font-bold text-xs px-2.5 py-1 rounded-lg border border-amber-300 shadow-2xs">
+                          ×{qty} Qty
+                        </span>
+                      ) : null;
+                    })()}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        searchInputRef.current?.focus();
+                      }}
+                      className="text-stone-400 hover:text-stone-700 p-1.5 rounded-lg cursor-pointer hover:bg-stone-200 transition-colors"
+                      title="Clear search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </>
+                ) : (
+                  <span className="hidden sm:flex items-center gap-1 text-xs font-mono text-stone-400 bg-stone-100 px-2.5 py-1 rounded-lg border border-stone-200">
+                    <kbd className="font-semibold">/</kbd> to focus
+                  </span>
                 )}
               </div>
+            </div>
+          </div>
 
-              {/* Instant Search Results Spotlight List */}
-              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-330px)] min-h-[300px]">
-                <div className="px-3.5 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between text-xs">
+          {posViewMode === "search" ? (
+            /* =========================================================================
+               MODE A: SPEED SEARCH - BLANK WHEN IDLE, DISHES POPUP ON SEARCH
+               ========================================================================= */
+            !searchQuery.trim() ? (
+              /* IDLE STATE: COMPLETELY BLANK / QUIET PLACEHOLDER (NO DISHES TAKING SPACE) */
+              <div className="min-h-[160px] sm:min-h-[200px] rounded-2xl border border-dashed border-stone-200/80 bg-stone-50/40 flex flex-col items-center justify-center text-center p-6 transition-all">
+                <Search className="w-8 h-8 text-stone-300 stroke-[1.5] mb-2" />
+                <p className="text-sm font-semibold text-stone-500">
+                  Search dishes to add to cart
+                </p>
+                <p className="text-xs text-stone-400 mt-1">
+                  Type any dish name or code above · Press <kbd className="font-mono bg-stone-200 text-stone-700 px-1.5 py-0.5 rounded text-[11px] font-bold">↵ Enter</kbd> to add
+                </p>
+              </div>
+            ) : (
+              /* ACTIVE SEARCH RESULTS: SLICK SPOTLIGHT LIST */
+              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-380px)] min-h-[220px]">
+                <div className="px-3.5 py-2.5 bg-stone-50 border-b border-stone-200 flex items-center justify-between text-xs">
                   <div className="font-bold text-stone-700 flex items-center gap-1.5">
-                    <span>{searchQuery ? `Dishes matching "${searchQuery}"` : "Frequently Ordered Dishes"}</span>
+                    <span>Dishes matching "{searchQuery}"</span>
                     <span className="font-mono text-[10px] bg-stone-200 text-stone-700 px-2 py-0.5 rounded-full font-bold">
                       {speedSearchResults.length}
                     </span>
@@ -1973,7 +1812,7 @@ export default function PosBillingPortal({
 
                 <div className="divide-y divide-stone-100 overflow-y-auto flex-grow p-1.5 space-y-1">
                   {speedSearchResults.length === 0 ? (
-                    <div className="py-14 text-center text-stone-400 flex flex-col items-center justify-center gap-2">
+                    <div className="py-12 text-center text-stone-400 flex flex-col items-center justify-center gap-2">
                       <Search className="w-8 h-8 text-stone-300" />
                       <p className="font-semibold text-stone-700 text-sm">No dishes matched "{searchQuery}"</p>
                       <p className="text-xs text-stone-400">Add it directly as a custom billing item:</p>
@@ -2008,7 +1847,7 @@ export default function PosBillingPortal({
                           key={item.id}
                           onClick={() => handleSelectSearchResult(item)}
                           onMouseEnter={() => setHighlightedIndex(idx)}
-                          className={`p-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                          className={`p-2.5 sm:p-3 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
                             isHighlighted
                               ? "bg-stone-900 text-white shadow-xs"
                               : "hover:bg-stone-50 text-stone-800"
@@ -2065,18 +1904,18 @@ export default function PosBillingPortal({
 
                           {/* Right: Price & Quick Action */}
                           <div className="flex items-center gap-3 shrink-0">
-                            <span className={`font-sans font-bold text-xs sm:text-sm ${
+                            <span className={`font-sans font-bold text-sm sm:text-base ${
                               isHighlighted ? "text-emerald-300" : "text-stone-900"
                             }`}>
                               ₹{item.price.toLocaleString("en-IN")}
                             </span>
 
-                            <div className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition-all ${
+                            <div className={`px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1 transition-all ${
                               isHighlighted
                                 ? "bg-emerald-500 text-emerald-950 font-extrabold shadow-2xs"
                                 : "bg-stone-100 text-stone-700 hover:bg-emerald-50 hover:text-emerald-700"
                             }`}>
-                              <CornerDownLeft className="w-3 h-3 stroke-[2.5]" />
+                              <CornerDownLeft className="w-3.5 h-3.5 stroke-[2.5]" />
                               <span>{qty > 1 ? `+${qty}` : "+Add"}</span>
                             </div>
                           </div>
@@ -2099,7 +1938,7 @@ export default function PosBillingPortal({
                   </div>
                 </div>
               </div>
-            </div>
+            )
           ) : (
             /* =========================================================================
                MODE B: VISUAL CATALOG GRID WITH CATEGORY FILTERS
@@ -2190,7 +2029,7 @@ export default function PosBillingPortal({
               </div>
 
               {/* Menu Catalog Grid */}
-              <div className={`grid grid-cols-1 sm:grid-cols-2 ${isTablePanelCollapsed ? "xl:grid-cols-3 2xl:grid-cols-4" : "xl:grid-cols-3"} gap-2.5 sm:gap-3 overflow-y-auto max-h-[calc(100vh-235px)] min-h-[300px] pr-0.5`}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 sm:gap-3 overflow-y-auto max-h-[calc(100vh-235px)] min-h-[300px] pr-0.5">
                 {filteredMenuItems.length === 0 ? (
                   <div className="col-span-full py-16 text-center text-stone-400 bg-white rounded-2xl border border-stone-200 flex flex-col items-center justify-center gap-2">
                     <Search className="w-8 h-8 text-stone-300" />
@@ -2320,10 +2159,92 @@ export default function PosBillingPortal({
               </div>
             </div>
           )}
+
+          {/* HORIZONTAL TABLES STRIP AT THE BOTTOM */}
+          <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-xs space-y-2 mt-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-600" />
+                <span className="font-bold text-xs sm:text-sm text-stone-900 font-serif">
+                  Dining Tables
+                </span>
+                <span className="text-[10px] font-mono font-bold bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full border border-stone-200">
+                  {tables.length} Total
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  {tables.filter(t => t.status !== "Occupied" && !orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Free
+                </span>
+                <span className="flex items-center gap-1 text-[11px] font-medium text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/60">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  {tables.filter(t => t.status === "Occupied" || orders.some(o => o.orderType === "dine-in" && isSameTable(o.tableNumber, t.tableNumber) && o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled")).length} Active
+                </span>
+              </div>
+            </div>
+
+            {/* Horizontal Scrollable Table Chips: T1, T2, T3... */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar select-none">
+              {tables.map(table => {
+                const activeOrd = orders.find(
+                  o => o.orderType === "dine-in" &&
+                    isSameTable(o.tableNumber, table.tableNumber) &&
+                    o.paymentStatus !== "Paid" &&
+                    o.orderStatus !== "Cancelled"
+                );
+                const hasOrder = !!activeOrd;
+                const isOccupied = table.status === "Occupied" || hasOrder;
+                const isSelected = isSameTable(selectedTable, table.tableNumber) && orderType === "dine-in";
+
+                return (
+                  <button
+                    key={table.id}
+                    type="button"
+                    onClick={() => {
+                      setOrderType("dine-in");
+                      handleTableChange(table.tableNumber);
+                    }}
+                    className={`px-3 py-2 rounded-xl border text-left transition-all shrink-0 cursor-pointer flex items-center gap-2 ${
+                      isSelected
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30 scale-105"
+                        : isOccupied
+                          ? "bg-rose-50 hover:bg-rose-100 text-rose-950 border-rose-200/90"
+                          : "bg-stone-50 hover:bg-emerald-50/50 text-stone-800 border-stone-200 hover:border-emerald-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${
+                        isSelected ? "bg-white" : isOccupied ? "bg-rose-500 animate-pulse" : "bg-emerald-500"
+                      }`} />
+                      <span className="font-mono font-extrabold text-xs sm:text-sm">
+                        T{table.tableNumber}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-[10px]">
+                      {hasOrder ? (
+                        <span className={`font-mono font-bold px-1.5 py-0.2 rounded ${
+                          isSelected ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700 font-extrabold"
+                        }`}>
+                          ₹{activeOrd.grandTotal}
+                        </span>
+                      ) : (
+                        <span className={`font-medium ${isSelected ? "text-white/80" : "text-stone-400"}`}>
+                          {table.capacity}p
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        {/* COLUMN 3: RIGHT ACTIVE BILLING CART & SETTLEMENT PANEL */}
-        <div className={`${isTablePanelCollapsed ? "lg:col-span-5 xl:col-span-4 2xl:col-span-4" : "lg:col-span-4 xl:col-span-4 2xl:col-span-4"} bg-white border border-stone-200 rounded-2xl shadow-xs overflow-hidden flex flex-col lg:sticky lg:top-2 self-start max-h-[calc(100vh-125px)] transition-all`}>
+        {/* RIGHT COLUMN: ACTIVE BILLING CART & SETTLEMENT PANEL */}
+        <div className="lg:col-span-5 xl:col-span-4 2xl:col-span-4 bg-white border border-stone-200 rounded-2xl shadow-xs overflow-hidden flex flex-col lg:sticky lg:top-2 self-start max-h-[calc(100vh-125px)] transition-all">
 
           {/* Top Order Type Modern Segmented Control */}
           <div className="p-2.5 bg-stone-50 border-b border-stone-200 flex-shrink-0">
