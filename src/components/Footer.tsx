@@ -1,4 +1,5 @@
 import { Phone, Mail, MapPin, Clock, ChevronUp, Download } from "lucide-react";
+import { WINDOWS_INSTALLER_URL } from "./PWAInstallModal";
 
 export default function Footer({ onAdminClick }: { onAdminClick?: () => void }) {
   const scrollToTop = () => {
@@ -48,7 +49,7 @@ export default function Footer({ onAdminClick }: { onAdminClick?: () => void }) 
             <span className="inline-flex items-center gap-1.5 ml-1">
               <span className="text-stone-800">|</span>
               <a
-                href="/download/windows"
+                href={WINDOWS_INSTALLER_URL}
                 download="WEBRAJYA-POS-Setup.exe"
                 className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500 border border-amber-500/20 hover:border-transparent text-[10px] text-amber-400 hover:text-black font-semibold rounded transition-all cursor-pointer inline-flex items-center gap-1"
                 title="Download WebRajya Windows App (.exe) for silent printing"

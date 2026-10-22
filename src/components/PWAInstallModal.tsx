@@ -276,7 +276,7 @@ export default function PWAInstallModal({
               {/* Main Download Button */}
               <div className="space-y-2">
                 <a
-                  href="/download/windows"
+                  href={WINDOWS_INSTALLER_URL}
                   download="WEBRAJYA-POS-Setup.exe"
                   className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-600 via-amber-700 to-stone-900 hover:from-amber-700 hover:to-black text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2.5 cursor-pointer text-sm transform active:scale-98"
                 >
@@ -285,7 +285,7 @@ export default function PWAInstallModal({
                 </a>
                 
                 <div className="flex items-center justify-between text-[11px] text-stone-500 px-1 font-mono">
-                  <span>Size: ~65 MB • Windows 10/11 (64-bit)</span>
+                  <span>v1.0.1 • ~105 MB • Windows 10/11 (64-bit)</span>
                   <a
                     href={GITHUB_RELEASES_URL}
                     target="_blank"

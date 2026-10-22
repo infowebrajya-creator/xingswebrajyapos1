@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Shield, Mail, Lock, Eye, EyeOff, Sparkles, KeyRound, AlertCircle, HelpCircle, Download, Monitor } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LocalDB } from "../lib/db";
-import PWAInstallModal from "./PWAInstallModal";
+import PWAInstallModal, { WINDOWS_INSTALLER_URL } from "./PWAInstallModal";
 
 interface AdminLoginProps {
   onLoginSuccess: (token: string, rememberMe: boolean) => void;
@@ -215,14 +215,24 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
         {/* Windows Desktop & Mobile App Installer Link */}
         <div className="mt-4 pt-3 border-t border-stone-100 flex flex-col items-center justify-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setShowInstallModal(true)}
-            className="inline-flex items-center gap-2 text-xs font-bold text-stone-700 hover:text-stone-950 bg-stone-50 hover:bg-stone-100 border border-stone-200 px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-2xs"
-          >
-            <Download className="w-3.5 h-3.5 text-[#aa7c11]" />
-            <span>Download Windows POS App (.exe)</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href={WINDOWS_INSTALLER_URL}
+              download="WEBRAJYA-POS-Setup.exe"
+              className="inline-flex items-center gap-2 text-xs font-bold text-stone-700 hover:text-stone-950 bg-stone-50 hover:bg-stone-100 border border-stone-200 px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-2xs"
+            >
+              <Download className="w-3.5 h-3.5 text-[#aa7c11]" />
+              <span>Download Windows POS App (.exe)</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setShowInstallModal(true)}
+              className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-xl transition-all cursor-pointer text-xs font-semibold"
+              title="View Setup Guide & Mobile App"
+            >
+              Guide
+            </button>
+          </div>
           <span className="text-[10px] text-stone-400 font-sans">
             Built-in 1-Tap Silent Thermal Printing (Zero Dialogs)
           </span>

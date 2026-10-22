@@ -31,6 +31,7 @@ import {
   TenantPrinterConfig, 
   PrinterResolutionResult 
 } from "../lib/printerManager";
+import { WINDOWS_INSTALLER_URL } from "./PWAInstallModal";
 
 export default function PrintersConfigTab() {
   const [config, setConfig] = useState<TenantPrinterConfig>(() => PrinterManager.getConfiguredPrinter());
@@ -268,7 +269,7 @@ export default function PrintersConfigTab() {
           </div>
 
           <a
-            href="/download/windows"
+            href={WINDOWS_INSTALLER_URL}
             download="WEBRAJYA-POS-Setup.exe"
             className="shrink-0 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-[#C67C4E] hover:from-amber-700 hover:to-[#b06a3f] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
           >

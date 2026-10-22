@@ -247,8 +247,8 @@ if (typeof window !== "undefined" && window.electronAPI?.isElectron && window.el
 
 ### Step 1: Downloading from Website
 1. Open the POS website (e.g. `apos1.vercel.app`) on your Windows billing laptop.
-2. Click **"Download App (.exe)"** in the top navigation or on the Admin Login page.
-3. The file `WEBRAJYA-POS-Setup.exe` (~65 MB) downloads to your `Downloads` folder.
+2. Click **"Download App (.exe)"** in the top navigation, in the footer, or on the Admin Login page (or download directly from: [https://github.com/infowebrajya-creator/xingswebrajyapos1/releases/latest/download/WEBRAJYA-POS-Setup.exe](https://github.com/infowebrajya-creator/xingswebrajyapos1/releases/latest/download/WEBRAJYA-POS-Setup.exe)).
+3. The file `WEBRAJYA-POS-Setup.exe` (~105 MB) downloads to your `Downloads` folder.
 
 ### Step 2: Running Setup
 1. Double-click `WEBRAJYA-POS-Setup.exe`.
