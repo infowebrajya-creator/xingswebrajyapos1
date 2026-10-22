@@ -10,7 +10,7 @@
     <meta name="keywords" content="THE XINGS KITCHEN POS, Restaurant POS, Cloud Billing, Kitchen Display System" />
     
     <!-- PWA & Mobile Web App Manifest -->
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="./manifest.json" />
     <meta name="theme-color" content="#0C1B33" />
     <meta name="msapplication-TileColor" content="#0C1B33" />
 
@@ -19,13 +19,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="WebRajya POS" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
 
     <!-- Favicon & Icons -->
-    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-    <link rel="shortcut icon" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="./favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="./logo.svg" />
+    <link rel="shortcut icon" href="./favicon.png" />
     
     <!-- SoftwareApplication Schema -->
     <script type="application/ld+json">
@@ -38,11 +38,11 @@
     }
     </script>
 
-    <!-- Service Worker Registration for PWA Installability -->
+    <!-- Service Worker Registration for PWA Installability (HTTP/HTTPS only) -->
     <script>
-      if ('serviceWorker' in navigator) {
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          navigator.serviceWorker.register('./sw.js', { scope: './' })
             .then(function(registration) {
               console.log('[PWA] Service Worker registered with scope:', registration.scope);
             })

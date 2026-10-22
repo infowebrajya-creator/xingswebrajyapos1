@@ -45,12 +45,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         with:
-          tag_name: v1.0.0
-          name: "WebRajya POS Windows Desktop Edition v1.0.0"
+          tag_name: v1.0.1
+          name: "WebRajya POS Windows Desktop Edition v1.0.1"
+          make_latest: true
           body: |
             ## 🪟 WebRajya POS - Windows Desktop Edition (.exe)
             
             ### ✨ Features:
+            - **Blank Screen Fix**: Fully resolved asset resolution and routing on local file protocol.
             - **1-Tap Silent Thermal Printing**: Immediate background printing with zero Chrome dialogs or print preview prompts.
             - **Hardware ESC/POS Auto-Cut**: Automatic receipt cut on EPSON, TVS, Everycom, POS-80/58 printers.
             - **Offline-Ready Billing**: Operates smoothly even if internet fluctuates.

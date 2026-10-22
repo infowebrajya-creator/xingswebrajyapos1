@@ -2,12 +2,19 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { fork } from "child_process";
 
+import fs from "fs";
+
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: any = null;
 
 function startBackendServer() {
   const isProd = app.isPackaged;
   const serverPath = path.join(__dirname, "server.cjs");
+
+  if (!fs.existsSync(serverPath)) {
+    console.log(`[Electron Main] Backend server script not found at ${serverPath}, skipping fork`);
+    return;
+  }
 
   console.log(`[Electron Main] Forking Express backend server from ${serverPath}`);
   
@@ -32,12 +39,24 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 768,
-    title: "WEBRAJYA POS - Restaurant Control Hub",
+    title: "THE XINGS KITCHEN POS | Restaurant Control Hub",
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Hotkey toggle for developer tools (F12 or Ctrl+Shift+I) for immediate diagnostics
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.key === "F12" || ((input.control || input.meta) && input.shift && input.key.toLowerCase() === "i")) {
+      mainWindow?.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Electron Main] Page failed to load: ${errorCode} (${errorDescription}) at ${validatedURL}`);
   });
 
   if (!app.isPackaged && process.env.ELECTRON_START_URL) {

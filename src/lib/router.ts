@@ -82,8 +82,11 @@ const VALID_REPORTS_SUBTABS: Record<string, ReportsSubTab> = {
 export function getScannedTableNumber(): string {
   if (typeof window === "undefined") return "";
 
-  // 1. Check path: /table/:tableNumber
-  const pathMatch = window.location.pathname.match(/^\/table\/([^\/?#]+)/i);
+  // 1. Check path: /table/:tableNumber (also check hash under file:// protocol)
+  const rawPath = window.location.protocol === "file:" && window.location.hash
+    ? window.location.hash.replace(/^#\/?/, "/")
+    : window.location.pathname;
+  const pathMatch = rawPath.match(/^\/table\/([^\/?#]+)/i);
   if (pathMatch && pathMatch[1]) {
     const val = decodeURIComponent(pathMatch[1]).trim();
     if (val) {
@@ -95,7 +98,8 @@ export function getScannedTableNumber(): string {
 
   // 2. Check query params: ?table=:tableNumber or ?t=:tableNumber
   try {
-    const params = new URLSearchParams(window.location.search);
+    const searchStr = window.location.search || (window.location.hash.includes("?") ? window.location.hash.split("?")[1] : "");
+    const params = new URLSearchParams(searchStr);
     const queryVal = (params.get("table") || params.get("t") || "").trim();
     if (queryVal) {
       localStorage.setItem("ij_scanned_table", queryVal);
@@ -106,7 +110,7 @@ export function getScannedTableNumber(): string {
 
   // 3. Fallback to localStorage ONLY when on a customer table or menu route
   if (typeof window !== "undefined") {
-    const isCustomerPath = window.location.pathname.startsWith("/table") || window.location.pathname.startsWith("/menu");
+    const isCustomerPath = rawPath.startsWith("/table") || rawPath.startsWith("/menu");
     if (isCustomerPath) {
       try {
         return localStorage.getItem("ij_scanned_table") || "";
@@ -151,8 +155,15 @@ export function parseCurrentRoute(): ParsedRoute {
   let path = window.location.pathname;
   const hash = window.location.hash;
 
-  // If pathname is root but hash contains #admin or #/admin, use hash path
-  if (hash.startsWith("#admin") || hash.startsWith("#/admin")) {
+  // In Electron file:// protocol, path is local file system path (e.g. C:/.../dist/index.html)
+  // We derive actual route from hash, defaulting to /admin/pos
+  if (window.location.protocol === "file:") {
+    if (hash && hash.length > 1) {
+      path = hash.replace(/^#\/?/, "/");
+    } else {
+      path = "/admin/pos";
+    }
+  } else if (hash.startsWith("#admin") || hash.startsWith("#/admin") || hash.startsWith("#table") || hash.startsWith("#/table")) {
     path = hash.replace(/^#\/?/, "/");
   }
 
@@ -263,13 +274,34 @@ export function navigateTo(
 ): void {
   if (typeof window === "undefined") return;
 
+  // Under file:// protocol (Electron packaged app), calling pushState or replaceState
+  // with an absolute path throws a fatal SecurityError DOMException.
+  // We use hash navigation (#/admin/...) which is standard and 100% safe.
+  if (window.location.protocol === "file:") {
+    const formattedHash = `#${url.startsWith("/") ? url : "/" + url}`;
+    if (window.location.hash === formattedHash) return;
+
+    if (options.replace) {
+      const hrefWithoutHash = window.location.href.split("#")[0];
+      window.location.replace(`${hrefWithoutHash}${formattedHash}`);
+    } else {
+      window.location.hash = formattedHash;
+    }
+    window.dispatchEvent(new Event("app_route_change"));
+    return;
+  }
+
   const currentPath = window.location.pathname + window.location.hash;
   if (currentPath === url) return;
 
-  if (options.replace) {
-    window.history.replaceState({ url }, "", url);
-  } else {
-    window.history.pushState({ url }, "", url);
+  try {
+    if (options.replace) {
+      window.history.replaceState({ url }, "", url);
+    } else {
+      window.history.pushState({ url }, "", url);
+    }
+  } catch (err) {
+    window.location.hash = `#${url.startsWith("/") ? url : "/" + url}`;
   }
 
   // Dispatch custom event to notify all listening components
