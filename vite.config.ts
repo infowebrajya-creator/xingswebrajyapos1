@@ -4,8 +4,16 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  // Use './' ONLY when explicitly building for Electron desktop packaging.
+  // For Web (Vercel, browsers, HTTP servers), base MUST be '/' so nested routes like /admin/pos resolve assets correctly.
+  const isElectronBuild = !process.env.VERCEL && (
+    process.env.BUILD_TARGET === 'electron' || 
+    process.env.ELECTRON_BUILD === 'true' ||
+    Boolean(process.env.npm_lifecycle_event && process.env.npm_lifecycle_event.includes('electron'))
+  );
+
   return {
-    base: './',
+    base: isElectronBuild ? './' : '/',
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     plugins: [react(), tailwindcss()],
     resolve: {

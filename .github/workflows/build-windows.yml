@@ -28,6 +28,8 @@ jobs:
 
       - name: Build Web Application & Electron Bundles
         run: npm run build
+        env:
+          BUILD_TARGET: electron
 
       - name: Package Windows Installer (.exe)
         run: npx electron-builder --win nsis

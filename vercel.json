@@ -36,6 +36,13 @@
     }
   ],
   "rewrites": [
+    { "source": "/(.*)/assets/(.*)", "destination": "/assets/$2" },
+    { "source": "/(.*)/sw.js", "destination": "/sw.js" },
+    { "source": "/(.*)/manifest.json", "destination": "/manifest.json" },
+    { "source": "/(.*)/manifest.webmanifest", "destination": "/manifest.webmanifest" },
+    { "source": "/(.*)/favicon.png", "destination": "/favicon.png" },
+    { "source": "/(.*)/logo.svg", "destination": "/logo.svg" },
+    { "source": "/(.*)/apple-touch-icon.png", "destination": "/apple-touch-icon.png" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
