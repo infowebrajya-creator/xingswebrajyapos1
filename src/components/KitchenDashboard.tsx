@@ -144,10 +144,11 @@ export default function KitchenDashboard() {
     window.addEventListener("kots_updated", handleSync);
     window.addEventListener("new_order", handleSync);
 
-    // Realtime polling fallback: conservative 60s poller, paused when backgrounded or restricted
+    // Realtime polling fallback: paused when backgrounded, restricted, or Realtime WebSocket is healthy
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       if (LocalDB.isRestricted()) return;
+      if (LocalDB.isRealtimeHealthy()) return;
       loadData(true);
     }, 60000);
 

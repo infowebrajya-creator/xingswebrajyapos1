@@ -831,16 +831,29 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
       } catch (_) {}
     }, 60000);
 
-    // 3. Tab focus & visibility delta-catchup: instant sync when tab is reopened with zero background polling
-    const handleVisibilityOrFocus = async () => {
-      if (typeof document !== "undefined" && !document.hidden && !LocalDB.isRestricted()) {
+    // 3. Tab focus & visibility delta-catchup: throttled & debounced, silenced when Realtime WebSocket is active
+    let lastFocusSyncTime = 0;
+    const FOCUS_SYNC_COOLDOWN = 3 * 60 * 1000; // 3 minutes cooldown
+    let focusDebounceTimer: any = null;
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === "undefined" || document.hidden || LocalDB.isRestricted()) return;
+      // If Realtime WebSocket is connected and healthy, live push events are already active. Skip polling!
+      if (LocalDB.isRealtimeHealthy()) return;
+
+      const now = Date.now();
+      if (now - lastFocusSyncTime < FOCUS_SYNC_COOLDOWN) return;
+
+      if (focusDebounceTimer) clearTimeout(focusDebounceTimer);
+      focusDebounceTimer = setTimeout(async () => {
+        lastFocusSyncTime = Date.now();
         try {
           const delta = await LocalDB.fetchOrdersDelta();
           if (delta.changedCount > 0) {
             setOrders(delta.orders);
           }
         } catch (_) {}
-      }
+      }, 500);
     };
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
     window.addEventListener("focus", handleVisibilityOrFocus);
@@ -857,6 +870,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     return () => {
       unsubscribeRealtime();
       clearInterval(pollTimer);
+      if (focusDebounceTimer) clearTimeout(focusDebounceTimer);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
       window.removeEventListener("focus", handleVisibilityOrFocus);
       window.removeEventListener("storage", handleStorageAndTableSync);
@@ -865,15 +879,15 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     };
   }, []);
 
-  const refreshAllData = async () => {
+  const refreshAllData = async (force = false) => {
     try {
-      const ords = await LocalDB.fetchOrders();
+      const ords = await LocalDB.fetchOrders({ force });
       setOrders(ords);
     } catch (_) {
       setOrders(LocalDB.getOrders());
     }
     try {
-      const items = await LocalDB.fetchMenuItems();
+      const items = await LocalDB.fetchMenuItems(force);
       setMenuItems(items);
     } catch (_) {
       setMenuItems(LocalDB.getMenuItems());
@@ -897,25 +911,25 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
       setReviews(LocalDB.getReviews());
     }
     try {
-      const sts = await LocalDB.fetchSettings();
+      const sts = await LocalDB.fetchSettings(force);
       setSettings(sts);
     } catch (_) {
       setSettings(LocalDB.getSettings());
     }
     try {
-      const logs = await LocalDB.fetchAuditLogs();
+      const logs = await LocalDB.fetchAuditLogs(force);
       setAuditLogs(logs);
     } catch (_) {
       setAuditLogs(LocalDB.getAuditLogs());
     }
     try {
-      const tbls = await LocalDB.fetchTables();
+      const tbls = await LocalDB.fetchTables(force);
       setTables(tbls);
     } catch (_) {
       setTables(LocalDB.getTables());
     }
     try {
-      const cats = await LocalDB.fetchCategories();
+      const cats = await LocalDB.fetchCategories(force);
       setCategoriesList(cats);
     } catch (_) {
       setCategoriesList(LocalDB.getCategories());

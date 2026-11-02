@@ -103,12 +103,24 @@ function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): Promis
   return promise;
 }
 
-// In-memory cache for static menu and settings
+// In-memory cache for static menu, settings, tables, categories, orders, and audit logs
 let menuCatalogCache: { data: MenuItem[]; timestamp: number } | null = null;
-const MENU_CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MENU_CATALOG_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 let restaurantSettingsCache: { data: RestaurantSettings; timestamp: number } | null = null;
-const SETTINGS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const SETTINGS_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+let tablesCache: { data: RestaurantTable[]; timestamp: number } | null = null;
+const TABLES_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+let categoriesCache: { data: Category[]; timestamp: number } | null = null;
+const CATEGORIES_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+let ordersCache: { data: Order[]; timestamp: number } | null = null;
+const ORDERS_CACHE_TTL = 30 * 1000; // 30 seconds
+
+let auditLogsCache: { data: AuditLog[]; timestamp: number } | null = null;
+const AUDIT_LOGS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 export function normalizeTableNumber(num?: string | number): string {
   if (!num && num !== 0) return "";
@@ -605,6 +617,7 @@ export class LocalDB {
         localStorage.setItem("ij_orders", JSON.stringify(bounded.slice(0, 250)));
       } catch (_) {}
     }
+    ordersCache = { data: unique, timestamp: Date.now() };
     window.dispatchEvent(new Event("storage"));
   }
 
@@ -649,46 +662,62 @@ export class LocalDB {
     return tablesToDeploy;
   }
 
+  static invalidateTablesCache(): void {
+    tablesCache = null;
+  }
+
   static saveTables(tables: RestaurantTable[]): void {
     localStorage.setItem("ij_tables", JSON.stringify(tables));
+    tablesCache = { data: tables, timestamp: Date.now() };
     window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("tables_updated"));
   }
 
   static async fetchTables(force = false): Promise<RestaurantTable[]> {
-    try {
-      this.incrementApiCallCount("fetchTables");
-      const { data, error } = await supabase
-        .from("tables")
-        .select("id, table_number, capacity, status, seating_area")
-        .order("table_number", { ascending: true });
+    if (!force && tablesCache && Date.now() - tablesCache.timestamp < TABLES_CACHE_TTL) {
+      return tablesCache.data;
+    }
 
-      if (error || !data || data.length === 0) {
-        return this.getTables();
-      }
-
-      const mapped: RestaurantTable[] = data.map((t: any) => ({
-        id: String(t.id),
-        tableNumber: String(t.table_number),
-        capacity: Number(t.capacity || 4),
-        seatingArea: t.seating_area || "Main Dining Hall",
-        status: (t.status === "Occupied" || t.status === "Billed") ? t.status : "Available"
-      }));
-
-      // Ensure parcel tables are present
-      const hasP1 = mapped.some(t => isSameTable(t.tableNumber, "P1"));
-      const hasP2 = mapped.some(t => isSameTable(t.tableNumber, "P2"));
-      const hasP3 = mapped.some(t => isSameTable(t.tableNumber, "P3"));
-      if (!hasP1) mapped.push({ id: "tbl-p01", tableNumber: "P1", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
-      if (!hasP2) mapped.push({ id: "tbl-p02", tableNumber: "P2", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
-      if (!hasP3) mapped.push({ id: "tbl-p03", tableNumber: "P3", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
-
-      this.saveTables(mapped);
-      return mapped;
-    } catch (err) {
-      console.warn("[Supabase] Tables fetch fallback to local:", err);
+    if (!force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getTables();
     }
+
+    return deduplicateRequest("fetchTables", async () => {
+      try {
+        this.incrementApiCallCount("fetchTables");
+        const { data, error } = await supabase
+          .from("tables")
+          .select("id, table_number, capacity, status, seating_area")
+          .order("table_number", { ascending: true });
+
+        if (error || !data || data.length === 0) {
+          return this.getTables();
+        }
+
+        const mapped: RestaurantTable[] = data.map((t: any) => ({
+          id: String(t.id),
+          tableNumber: String(t.table_number),
+          capacity: Number(t.capacity || 4),
+          seatingArea: t.seating_area || "Main Dining Hall",
+          status: (t.status === "Occupied" || t.status === "Billed") ? t.status : "Available"
+        }));
+
+        // Ensure parcel tables are present
+        const hasP1 = mapped.some(t => isSameTable(t.tableNumber, "P1"));
+        const hasP2 = mapped.some(t => isSameTable(t.tableNumber, "P2"));
+        const hasP3 = mapped.some(t => isSameTable(t.tableNumber, "P3"));
+        if (!hasP1) mapped.push({ id: "tbl-p01", tableNumber: "P1", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+        if (!hasP2) mapped.push({ id: "tbl-p02", tableNumber: "P2", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+        if (!hasP3) mapped.push({ id: "tbl-p03", tableNumber: "P3", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+
+        this.saveTables(mapped);
+        tablesCache = { data: mapped, timestamp: Date.now() };
+        return mapped;
+      } catch (err) {
+        console.warn("[Supabase] Tables fetch fallback to local:", err);
+        return this.getTables();
+      }
+    });
   }
 
 
@@ -1041,38 +1070,54 @@ export class LocalDB {
     return JSON.parse(stored);
   }
 
+  static invalidateCategoriesCache(): void {
+    categoriesCache = null;
+  }
+
   static saveCategories(cats: Category[]): void {
     localStorage.setItem("ij_categories", JSON.stringify(cats));
+    categoriesCache = { data: cats, timestamp: Date.now() };
     window.dispatchEvent(new Event("storage"));
   }
 
   static async fetchCategories(force = false): Promise<Category[]> {
-    try {
-      this.incrementApiCallCount("fetchCategories");
-      const { data, error } = await supabase
-        .from("categories")
-        .select("id, name, icon, sort_order, is_active")
-        .order("sort_order", { ascending: true });
+    if (!force && categoriesCache && Date.now() - categoriesCache.timestamp < CATEGORIES_CACHE_TTL) {
+      return categoriesCache.data;
+    }
 
-      if (error || !data || data.length === 0) {
-        return this.getCategories();
-      }
-
-      const mapped: Category[] = data.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        icon: c.icon || "🍽️",
-        description: c.description || "",
-        sortOrder: c.sort_order || 0,
-        isActive: c.is_active !== false
-      }));
-
-      this.saveCategories(mapped);
-      return mapped;
-    } catch (err) {
-      console.warn("[Supabase] Categories fetch fallback to local:", err);
+    if (!force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getCategories();
     }
+
+    return deduplicateRequest("fetchCategories", async () => {
+      try {
+        this.incrementApiCallCount("fetchCategories");
+        const { data, error } = await supabase
+          .from("categories")
+          .select("id, name, icon, sort_order, is_active")
+          .order("sort_order", { ascending: true });
+
+        if (error || !data || data.length === 0) {
+          return this.getCategories();
+        }
+
+        const mapped: Category[] = data.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          icon: c.icon || "🍽️",
+          description: c.description || "",
+          sortOrder: c.sort_order || 0,
+          isActive: c.is_active !== false
+        }));
+
+        this.saveCategories(mapped);
+        categoriesCache = { data: mapped, timestamp: Date.now() };
+        return mapped;
+      } catch (err) {
+        console.warn("[Supabase] Categories fetch fallback to local:", err);
+        return this.getCategories();
+      }
+    });
   }
 
   static getAuditLogs(): AuditLog[] {
@@ -1193,6 +1238,14 @@ export class LocalDB {
     restaurantSettingsCache = null;
   }
 
+  static invalidateOrdersCache(): void {
+    ordersCache = null;
+  }
+
+  static invalidateAuditLogsCache(): void {
+    auditLogsCache = null;
+  }
+
   private static lastOrdersSyncTimestamp: string | null = null;
 
   static getLastOrdersSyncTimestamp(): string | null {
@@ -1308,6 +1361,10 @@ export class LocalDB {
   }
 
   static async fetchOrders(options?: { limit?: number; offset?: number; force?: boolean }): Promise<Order[]> {
+    if (!options?.force && ordersCache && Date.now() - ordersCache.timestamp < ORDERS_CACHE_TTL) {
+      return ordersCache.data;
+    }
+
     if (!options?.force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getOrders();
     }
@@ -2995,24 +3052,16 @@ export class LocalDB {
 
   static async apiSaveSettings(settings: RestaurantSettings): Promise<void> {
     this.invalidateSettingsCache();
-    const isGstActive = settings.gstEnabled === true && (Number(settings.gstRate ?? settings.gstPercentage ?? 0) > 0);
     const payload = {
-      id: "singleton-config", // Keep simple single row config
-      name: settings.name,
-      contact_number: settings.contactNumber,
-      address: settings.address,
-      business_hours: settings.businessHours,
+      id: "singleton-config",
+      name: settings.name || "THE XINGS KITCHEN",
+      contact_number: settings.contactNumber || "",
+      address: settings.address || "",
+      business_hours: settings.businessHours || "10:00 AM - 10:00 PM DAILY",
       delivery_charges: Number(settings.deliveryCharges || 0),
-      gst_enabled: isGstActive,
-      gst_rate: isGstActive ? Number(settings.gstRate ?? settings.gstPercentage ?? 0) : 0,
-      cgst_rate: isGstActive ? Number(settings.cgstRate ?? 0) : 0,
-      sgst_rate: isGstActive ? Number(settings.sgstRate ?? 0) : 0,
-      gst_percentage: isGstActive ? Number(settings.gstPercentage ?? settings.gstRate ?? 0) : 0,
+      gst_percentage: Number(settings.gstPercentage ?? settings.gstRate ?? 5),
       gstin: settings.gstin || "",
-      facebook_url: settings.facebookUrl,
-      instagram_url: settings.instagramUrl,
-      twitter_url: settings.twitterUrl,
-      google_maps_url: settings.googleMapsUrl
+      fssai_number: settings.fssaiNumber || ""
     };
 
     try {
@@ -3028,34 +3077,45 @@ export class LocalDB {
     }
   }
 
-  static async fetchAuditLogs(): Promise<AuditLog[]> {
-    this.incrementApiCallCount("fetchAuditLogs");
-    try {
-      const { data, error } = await supabase
-        .from("audit_logs")
-        .select("id, timestamp, user, action, details, ip_address")
-        .order("timestamp", { ascending: false })
-        .limit(50);
+  static async fetchAuditLogs(force = false): Promise<AuditLog[]> {
+    if (!force && auditLogsCache && Date.now() - auditLogsCache.timestamp < AUDIT_LOGS_CACHE_TTL) {
+      return auditLogsCache.data;
+    }
 
-      if (error) {
-        console.warn("[Supabase] 'audit_logs' query fallback to localStorage.", error);
-        return this.getAuditLogs();
-      }
-
-      const mapped: AuditLog[] = (data || []).map((item: any) => ({
-        id: item.id,
-        timestamp: item.timestamp || new Date().toISOString(),
-        user: item.user || "Admin",
-        action: item.action || "Log Captured",
-        details: item.details || "",
-        ipAddress: item.ip_address || "127.0.0.1"
-      }));
-
-      localStorage.setItem("ij_audit_logs", JSON.stringify(mapped));
-      return mapped;
-    } catch {
+    if (!force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getAuditLogs();
     }
+
+    return deduplicateRequest("fetchAuditLogs", async () => {
+      this.incrementApiCallCount("fetchAuditLogs");
+      try {
+        const { data, error } = await supabase
+          .from("audit_logs")
+          .select("id, timestamp, user, action, details, ip_address")
+          .order("timestamp", { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.warn("[Supabase] 'audit_logs' query fallback to localStorage.", error);
+          return this.getAuditLogs();
+        }
+
+        const mapped: AuditLog[] = (data || []).map((item: any) => ({
+          id: item.id,
+          timestamp: item.timestamp || new Date().toISOString(),
+          user: item.user || "Admin",
+          action: item.action || "Log Captured",
+          details: item.details || "",
+          ipAddress: item.ip_address || "127.0.0.1"
+        }));
+
+        localStorage.setItem("ij_audit_logs", JSON.stringify(mapped));
+        auditLogsCache = { data: mapped, timestamp: Date.now() };
+        return mapped;
+      } catch {
+        return this.getAuditLogs();
+      }
+    });
   }
 
   static async apiAddAuditLog(action: string, details: string, user: string = "Admin"): Promise<void> {
