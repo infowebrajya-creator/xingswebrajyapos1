@@ -10,7 +10,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { LocalDB, Order, Coupon, InventoryItem, AuditLog, RestaurantSettings, isSameTable } from "../lib/db";
 import { MenuItem, RestaurantTable, Category, StaffMember, PermissionKey } from "../types";
-import { PhysicalThermalPrinter, getWRPrinterSettings } from "../lib/printerService";
+import { PhysicalThermalPrinter, getWRPrinterSettings, consolidateReceiptItems } from "../lib/printerService";
 import { JSPrintManagerService, JSPMStatusInfo } from "../lib/jsprintmanagerService";
 import { PrinterManager } from "../lib/printerManager";
 import { RBACService } from "../lib/rbac";
@@ -50,6 +50,7 @@ interface CartItem {
   hsnCode?: string;
   isKotSent?: boolean;
   kotNumber?: string;
+  printedKotQuantity?: number;
 }
 
 export default function PosBillingPortal({
@@ -268,21 +269,37 @@ export default function PosBillingPortal({
       );
 
       if (activeOrder && activeOrder.items && activeOrder.items.length > 0) {
-        const loadedCart: CartItem[] = activeOrder.items.map((item, idx) => ({
-          id: `order-item-${idx}-${item.name}`,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          customization: item.customization || "",
-          isManual: false,
-          category: item.category || "General",
-          gstRate: item.gstRate ?? (settings.gstEnabled ? (settings.gstRate || 0) : 0),
-          discount: item.discount ?? 0,
-          hsnCode: item.hsnCode || "",
-          isKotSent: true,
-          kotNumber: item.kotNumber || activeOrder.kotNumber || "KOT-0001"
-        }));
-        setCart(loadedCart);
+        // Consolidate loaded items by name, price, and notes to prevent duplicate rows
+        const itemMap = new Map<string, CartItem>();
+        activeOrder.items.forEach((item, idx) => {
+          const custom = String(item.customization || "").trim();
+          const price = Number(item.price ?? 0);
+          const key = `${item.name.toLowerCase()}:::${price}:::${custom.toLowerCase()}`;
+          const qty = Number(item.quantity) || 1;
+          const printedQty = Number((item as any).printedKotQuantity ?? qty);
+          if (itemMap.has(key)) {
+            const existing = itemMap.get(key)!;
+            existing.quantity += qty;
+            existing.printedKotQuantity = (existing.printedKotQuantity || 0) + printedQty;
+          } else {
+            itemMap.set(key, {
+              id: `order-item-${idx}-${item.name}`,
+              name: item.name,
+              price: price,
+              quantity: qty,
+              customization: custom,
+              isManual: (item as any).isManual || false,
+              category: item.category || "General",
+              gstRate: item.gstRate ?? (settings.gstEnabled ? (settings.gstRate || 0) : 0),
+              discount: item.discount ?? 0,
+              hsnCode: item.hsnCode || "",
+              isKotSent: true,
+              printedKotQuantity: printedQty,
+              kotNumber: item.kotNumber || activeOrder.kotNumber || "KOT-0001"
+            });
+          }
+        });
+        setCart(Array.from(itemMap.values()));
         setCustomerName(activeOrder.customerName || (isParcelTable(newTable) ? `Parcel #${newTable}` : `Table #${newTable}`));
         setCustomerPhone(activeOrder.phoneNumber || "");
         setCustomerEmail(activeOrder.email || "");
@@ -484,15 +501,15 @@ export default function PosBillingPortal({
     };
   }, [cart, appliedCoupon, orderType, selectedTable, settings]);
 
-  // Handle adding regular menu items to cart
+  // Handle adding regular menu items to cart (Consolidates items by name and price)
   const handleAddRegularToCart = (item: MenuItem) => {
-    // Check if an unsent instance of this menu item exists in cart
-    const unsentIndex = cart.findIndex(c => c.name === item.name && !c.isKotSent);
-    if (unsentIndex !== -1) {
-      setCart(prev => prev.map((c, idx) => idx === unsentIndex ? { ...c, quantity: c.quantity + 1 } : c));
-    } else {
+    setCart(prev => {
+      const existingIdx = prev.findIndex(c => c.name === item.name && !c.isManual && (c.price === item.price));
+      if (existingIdx !== -1) {
+        return prev.map((c, idx) => idx === existingIdx ? { ...c, quantity: c.quantity + 1 } : c);
+      }
       const newItem: CartItem = {
-        id: `reg-${item.id}-${Date.now()}`,
+        id: `reg-${item.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: item.name,
         price: item.price,
         quantity: 1,
@@ -503,19 +520,20 @@ export default function PosBillingPortal({
         hsnCode: item.hsnCode || "2106",
         isKotSent: false
       };
-      setCart(prev => [...prev, newItem]);
-    }
+      return [...prev, newItem];
+    });
   };
 
   // Add item with custom quantity (from speed search e.g. "chilli*2")
   const handleAddRegularWithQtyToCart = (item: MenuItem, qty: number = 1) => {
     const safeQty = Math.max(1, qty);
-    const unsentIndex = cart.findIndex(c => c.name === item.name && !c.isKotSent);
-    if (unsentIndex !== -1) {
-      setCart(prev => prev.map((c, idx) => idx === unsentIndex ? { ...c, quantity: c.quantity + safeQty } : c));
-    } else {
+    setCart(prev => {
+      const existingIdx = prev.findIndex(c => c.name === item.name && !c.isManual && (c.price === item.price));
+      if (existingIdx !== -1) {
+        return prev.map((c, idx) => idx === existingIdx ? { ...c, quantity: c.quantity + safeQty } : c);
+      }
       const newItem: CartItem = {
-        id: `reg-${item.id}-${Date.now()}`,
+        id: `reg-${item.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: item.name,
         price: item.price,
         quantity: safeQty,
@@ -526,28 +544,21 @@ export default function PosBillingPortal({
         hsnCode: item.hsnCode || "2106",
         isKotSent: false
       };
-      setCart(prev => [...prev, newItem]);
-    }
+      return [...prev, newItem];
+    });
   };
 
   // Handle decrementing regular menu item quantity directly from the menu card
   const handleDecrementRegularFromCart = (item: MenuItem) => {
-    // Look for unsent instance in cart first
-    const unsentIndex = cart.findIndex(c => c.name === item.name && !c.isKotSent);
-    if (unsentIndex !== -1) {
-      const target = cart[unsentIndex];
+    setCart(prev => {
+      const existingIdx = prev.findIndex(c => c.name === item.name && !c.isManual);
+      if (existingIdx === -1) return prev;
+      const target = prev[existingIdx];
       if (target.quantity > 1) {
-        setCart(prev => prev.map((c, idx) => idx === unsentIndex ? { ...c, quantity: c.quantity - 1 } : c));
-      } else {
-        handleRemoveFromCart(target.id);
+        return prev.map((c, idx) => idx === existingIdx ? { ...c, quantity: c.quantity - 1 } : c);
       }
-      return;
-    }
-    // Otherwise look for last matching item
-    const lastMatch = [...cart].reverse().find(c => c.name === item.name);
-    if (lastMatch) {
-      handleAdjustQuantity(lastMatch.id, -1);
-    }
+      return prev.filter((_, idx) => idx !== existingIdx);
+    });
   };
 
   // Keyboard navigation & Enter selection for speed search command center
@@ -671,7 +682,8 @@ export default function PosBillingPortal({
         hsnCode: item.hsnCode,
         notes: item.customization,
         isKotSent: item.isKotSent,
-        kotNumber: item.kotNumber
+        kotNumber: item.kotNumber,
+        printedKotQuantity: item.printedKotQuantity
       }));
 
       let newSub = 0;
@@ -979,21 +991,32 @@ export default function PosBillingPortal({
 
     setIsFinalizing(true);
     try {
-      // Formulate Order Object for LocalDB saving
-      const finalOrderItems = cart.map(item => ({
-        menuItemId: item.isManual ? "manual" : item.id.replace("reg-", ""),
-        name: item.name,
-        price: item.price - (item.price * (item.discount / 100)), // discounted price
-        quantity: item.quantity,
-        customization: item.customization,
-        // Store complete manual attributes for ledger reports
-        isManual: item.isManual,
-        category: item.category,
-        gstRate: item.gstRate,
-        discount: item.discount,
-        hsnCode: item.hsnCode,
-        notes: item.customization
-      }));
+      // Formulate Order Object for LocalDB saving: cleanly consolidate items by name, rate, and customization
+      const consolidatedItemsMap = new Map<string, any>();
+      for (const item of cart) {
+        const effectivePrice = item.price - (item.price * (item.discount / 100));
+        const custom = String(item.customization || "").trim();
+        const key = `${item.name.toLowerCase()}:::${effectivePrice}:::${custom.toLowerCase()}`;
+        if (consolidatedItemsMap.has(key)) {
+          const existing = consolidatedItemsMap.get(key);
+          existing.quantity += item.quantity;
+        } else {
+          consolidatedItemsMap.set(key, {
+            menuItemId: item.isManual ? "manual" : item.id.replace("reg-", ""),
+            name: item.name,
+            price: effectivePrice,
+            quantity: item.quantity,
+            customization: custom || undefined,
+            isManual: item.isManual,
+            category: item.category,
+            gstRate: item.gstRate,
+            discount: item.discount,
+            hsnCode: item.hsnCode,
+            notes: custom || undefined
+          });
+        }
+      }
+      const finalOrderItems = Array.from(consolidatedItemsMap.values());
 
       const defaultName = orderType === "dine-in"
         ? "Walk-in Guest"
@@ -3427,8 +3450,8 @@ export default function PosBillingPortal({
                       <span className="col-span-2 text-right">AMT</span>
                     </div>
 
-                    {cart.map((item, idx) => {
-                      const effectivePrice = item.price - (item.price * (item.discount / 100));
+                    {consolidateReceiptItems(cart).map((item, idx) => {
+                      const effectivePrice = item.price - (item.price * ((item.discount || 0) / 100));
                       const itemTotal = effectivePrice * item.quantity;
                       return (
                         <div key={idx} className="grid grid-cols-12 text-[10px] py-0.5 border-b border-stone-200/60 items-center">
@@ -3445,7 +3468,7 @@ export default function PosBillingPortal({
 
                   <div className="space-y-1 pt-2 border-t border-dashed border-stone-400 text-[10px]">
                     <div className="flex justify-between text-stone-600">
-                      <span>Subtotal ({cart.length} items):</span>
+                      <span>Subtotal ({consolidateReceiptItems(cart).length} items):</span>
                       <span>₹{cartTotals.subtotal}</span>
                     </div>
                     {cartTotals.itemDiscounts > 0 && (
@@ -3516,7 +3539,7 @@ export default function PosBillingPortal({
                           email: customerEmail || "",
                           orderType: orderType,
                           tableNumber: selectedTable,
-                          items: cart.map(i => ({
+                          items: consolidateReceiptItems(cart).map(i => ({
                             menuItemId: i.id,
                             name: i.name,
                             price: i.price,

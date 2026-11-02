@@ -41,6 +41,30 @@ export interface PrintableLine {
 }
 
 /**
+ * Consolidates receipt items so duplicate dish entries with matching name, rate,
+ * and customization are cleanly aggregated into a single line item with summed quantity.
+ */
+export function consolidateReceiptItems(items: any[]): any[] {
+  if (!items || !Array.isArray(items)) return [];
+  const map = new Map<string, any>();
+  for (const it of items) {
+    if (!it) continue;
+    const name = String(it.name || "Item").trim();
+    const price = Number(it.price ?? it.unitPrice ?? 0);
+    const custom = String(it.customization || "").trim();
+    const key = `${name.toLowerCase()}:::${price}:::${custom.toLowerCase()}`;
+    const qty = Number(it.quantity) || 1;
+    if (map.has(key)) {
+      const existing = map.get(key);
+      existing.quantity = (Number(existing.quantity) || 1) + qty;
+    } else {
+      map.set(key, { ...it, name, price, customization: custom || undefined, quantity: qty });
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
  * Modern Browser-based Physical thermal ESC/POS Printing Service
  * Generates all receipts dynamically from an array of printable lines.
  */
@@ -151,7 +175,8 @@ export class PhysicalThermalPrinter {
     lines.push({ text: "QTY    ITEM", align: "left", bold: true });
     lines.push({ text: divider, align: "center" });
 
-    for (const item of data.items) {
+    const kotItems = consolidateReceiptItems(data.items || []);
+    for (const item of kotItems) {
       const qtyStr = String(item.quantity || 1).padStart(2, " ");
       lines.push({ text: `${qtyStr}     ${item.name}`, align: "left", bold: true });
       if (item.customization) {
@@ -219,13 +244,14 @@ export class PhysicalThermalPrinter {
     lines.push({ text: `Order Type: ${(data.orderType || "DINE-IN").toUpperCase()}`, align: "left" });
     lines.push({ text: divider, align: "center" });
 
-    // 3. Items List
+    // 3. Items List (Consolidated by item name, rate, and customization)
     const fmt = (val: number): string => (Number.isInteger(val) ? String(val) : val.toFixed(2));
+    const billItems = consolidateReceiptItems(data.items || []);
     if (is80) {
       lines.push({ text: "ITEM".padEnd(20) + "QTY".padStart(5) + "RATE".padStart(8) + "AMT".padStart(7), align: "left", bold: true });
       lines.push({ text: divider, align: "center" });
 
-      for (const item of (data.items || [])) {
+      for (const item of billItems) {
         const qty = Number(item.quantity) || 1;
         const rate = Number(item.price ?? item.unitPrice ?? 0);
         const amt = rate * qty;
@@ -241,7 +267,7 @@ export class PhysicalThermalPrinter {
       lines.push({ text: "ITEM".padEnd(14) + "QTY".padStart(4) + "RATE".padStart(7) + "AMT".padStart(7), align: "left", bold: true });
       lines.push({ text: divider, align: "center" });
 
-      for (const item of (data.items || [])) {
+      for (const item of billItems) {
         const qty = Number(item.quantity) || 1;
         const rate = Number(item.price ?? item.unitPrice ?? 0);
         const amt = rate * qty;
@@ -257,7 +283,7 @@ export class PhysicalThermalPrinter {
     lines.push({ text: divider, align: "center" });
 
     // 4. Financial Summary
-    const items = data.items || [];
+    const items = billItems;
     const calculatedSubtotal = items.reduce((sum: number, it: any) => sum + (Number(it.price ?? it.unitPrice ?? 0) * (Number(it.quantity) || 1)), 0);
     const subtotalVal = Number(data.subtotal ?? calculatedSubtotal);
     const discountVal = Number(data.discountAmount ?? data.discount ?? 0);
@@ -561,7 +587,7 @@ export class PhysicalThermalPrinter {
       return true;
     };
 
-    const items = data.items || [];
+    const items = consolidateReceiptItems(data.items || []);
     const fontSizeBase = is80 ? 12.5 : 10.5;
     const finalFontSize = fontSizeBase * (opts.fontScaling / 100);
     const lineSpacing = opts.characterDensity === "compact" ? "1.1" : opts.characterDensity === "spacious" ? "1.35" : "1.22";
@@ -1059,7 +1085,7 @@ export class PhysicalThermalPrinter {
       return true;
     };
 
-    const items = data.items || [];
+    const items = consolidateReceiptItems(data.items || []);
     
     let watermarkText = "";
     if (opts.showWatermark !== "none" && opts.showWatermark) {
@@ -1465,7 +1491,7 @@ export class PhysicalThermalPrinter {
     const bg = isDark ? "#121212" : "#ffffff";
     const textCol = isDark ? "#f3f4f6" : "#000000";
 
-    const items = split.items || [];
+    const items = consolidateReceiptItems(split.items || []);
     const splitTotal = Number(split.allocatedTotal || split.paidAmount || 0).toFixed(2);
     const splitSubtotal = Number(split.allocatedSubtotal || 0).toFixed(2);
     const splitGst = Number(split.allocatedGst || 0).toFixed(2);
@@ -2041,6 +2067,7 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
   builder.writeText(dividerLine);
 
   const fmt = (val: number): string => (Number.isInteger(val) ? String(val) : val.toFixed(2));
+  const items = consolidateReceiptItems(data.items || []);
 
   if (width === "80mm") {
     // 80mm Layout (40 chars): ITEM (20), QTY (5), RATE (8), AMT (7)
@@ -2049,7 +2076,6 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
     builder.bold(false);
     builder.writeText(dividerLine);
 
-    const items = data.items || [];
     for (const item of items) {
       const qty = Number(item.quantity) || 1;
       const rate = Number(item.price ?? item.unitPrice ?? 0);
@@ -2077,7 +2103,6 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
     builder.bold(false);
     builder.writeText(dividerLine);
 
-    const items = data.items || [];
     for (const item of items) {
       const qty = Number(item.quantity) || 1;
       const rate = Number(item.price ?? item.unitPrice ?? 0);
@@ -2103,7 +2128,6 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
   builder.writeText(dividerLine);
 
   // 4. Totals (Subtotal, Discount, Grand Total with ₹)
-  const items = data.items || [];
   const calculatedSubtotal = items.reduce((sum: number, it: any) => sum + (Number(it.price ?? it.unitPrice ?? 0) * (Number(it.quantity) || 1)), 0);
   const subtotalVal = Number(data.subtotal ?? calculatedSubtotal);
   const discountVal = Number(data.discountAmount ?? data.discount ?? 0);
@@ -2253,7 +2277,7 @@ export function buildKOTESCPOS(data: any, printerSettings: WRPrinterSettings): s
   builder.bold(false);
   builder.writeText(dividerLine);
 
-  const items = data.items || [];
+  const items = consolidateReceiptItems(data.items || []);
   for (const item of items) {
     builder.bold(true);
     const qtyStr = String(item.quantity || 1).padStart(2, " ");
