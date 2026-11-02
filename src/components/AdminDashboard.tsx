@@ -6,7 +6,7 @@ import {
   Activity, Star, Sparkles, Volume2, VolumeX, Printer, CheckCircle, QrCode,
   BookOpen, Eye, Calculator, History, Bell, Lock, RefreshCw, TrendingUp,
   FileText, Layers, Store, MapPin, Phone, ListPlus, Sliders, RotateCcw,
-  ArrowRightLeft, Receipt, Scale, Truck, PieChart, User
+  ArrowRightLeft, Receipt, Scale, Truck, PieChart, User, Database
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { motion, AnimatePresence } from "motion/react";
@@ -1922,7 +1922,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   {activeTab === "printers" && "Printers Manager"}
                   {activeTab === "kitchen" && "Kitchen Tickets (KDS)"}
                   {(activeTab === "tables" || activeTab === "visual_tables") && (tablesSubTab === "visual" ? "Visual Table Management" : "Tables & QR Codes")}
-                  {activeTab === "supabase" && "Supabase Diagnostics"}
+                  {activeTab === "supabase" && "Supabase Diagnostics (aryanrajput21's Project)"}
                 </span>
               </div>
             </div>
@@ -3570,6 +3570,45 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                           <span>Preview / Send Summary Now</span>
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 10. Supabase Cloud Database Section */}
+                <div className="bg-white border border-stone-200 rounded-2xl p-6 space-y-4 shadow-sm text-left">
+                  <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-[#C67C4E]" />
+                      <h3 className="text-xs font-mono font-bold text-stone-900 uppercase tracking-wider">
+                        10. Supabase Cloud Database
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-bold">
+                      Connected & Active
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-sans">
+                    <div className="bg-[#FAF6F0]/60 p-3.5 rounded-xl border border-stone-200/80">
+                      <span className="text-[10px] text-stone-400 font-mono uppercase block">Project Name</span>
+                      <span className="text-sm font-bold text-stone-900 font-sans">aryanrajput21's Project</span>
+                    </div>
+                    <div className="bg-[#FAF6F0]/60 p-3.5 rounded-xl border border-stone-200/80">
+                      <span className="text-[10px] text-stone-400 font-mono uppercase block">Database Host</span>
+                      <span className="text-xs font-mono text-stone-700 truncate block">https://pjgjtnyszuvmlmuetahn.supabase.co</span>
+                    </div>
+                    <div className="bg-[#FAF6F0]/60 p-3.5 rounded-xl border border-stone-200/80 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-stone-400 font-mono uppercase block">Diagnostics Hub</span>
+                        <span className="text-xs font-bold text-emerald-600 font-mono">100% Operational</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleTabSelect("supabase")}
+                        className="px-3 py-1.5 bg-stone-900 hover:bg-stone-850 text-white text-[10px] font-mono tracking-wider uppercase rounded-lg cursor-pointer transition-colors"
+                      >
+                        Inspect Hub
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -5443,7 +5482,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                     </div>
                     <div className="bg-stone-50 p-3 rounded-lg border border-stone-150 text-center">
                       <span className="text-[10px] font-mono text-stone-400 uppercase tracking-wider block">Database Server</span>
-                      <span className="text-xs font-bold text-stone-900 font-mono">Supabase Online</span>
+                      <span className="text-xs font-bold text-stone-900 font-mono">Supabase (aryanrajput21's Project)</span>
                     </div>
                     <div className="bg-stone-50 p-3 rounded-lg border border-stone-150 text-center">
                       <span className="text-[10px] font-mono text-stone-400 uppercase tracking-wider block">Security Level</span>

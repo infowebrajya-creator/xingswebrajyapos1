@@ -913,11 +913,14 @@ VERIFIED AND APPROVED BY: AI Coding Agent & POS QA Automation Suite
             <Layers className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-lg font-serif font-bold text-stone-900 uppercase tracking-widest">
-              Commission Engine Schema Hub
+            <h2 className="text-lg font-serif font-bold text-stone-900 uppercase tracking-widest flex flex-wrap items-center gap-2">
+              <span>Supabase Cloud Engine</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono font-bold tracking-normal normal-case">
+                aryanrajput21's Project
+              </span>
             </h2>
             <p className="text-[11px] text-stone-500 font-sans">
-              Continuous validation, live table audits, and automatic Supabase migration generator.
+              Continuous validation, live table audits, and automatic Supabase synchronization • Project: <strong className="text-stone-800">aryanrajput21's Project</strong>
             </p>
           </div>
         </div>
@@ -942,6 +945,12 @@ VERIFIED AND APPROVED BY: AI Coding Agent & POS QA Automation Suite
           </h3>
 
           <div className="space-y-2 text-xs font-mono">
+            <div className="flex justify-between py-1 border-b border-stone-50 items-center">
+              <span className="text-stone-400">Project:</span>
+              <span className="text-stone-900 font-bold text-[10px] bg-amber-50 text-[#aa7c11] px-2 py-0.5 rounded border border-amber-200 font-sans">
+                aryanrajput21's Project
+              </span>
+            </div>
             <div className="flex flex-col gap-0.5">
               <span className="text-[9px] text-stone-400 uppercase">Provider Service Host</span>
               <span className="text-stone-800 break-all bg-stone-50 p-1.5 rounded select-all text-[10px]">
