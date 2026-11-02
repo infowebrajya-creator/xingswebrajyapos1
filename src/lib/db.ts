@@ -3341,29 +3341,9 @@ export class LocalDB {
     }
   }
 
-  static async apiAddOrderItems(orderId: string, items: { menuItemId: string; name: string; price: number; quantity: number; customization?: string }[]): Promise<void> {
-    const payloads = items.map((item, index) => ({
-      id: `${orderId}-item-${index}-${Date.now()}`,
-      order_id: orderId,
-      menu_item_id: item.menuItemId,
-      name: item.name,
-      price: Number(item.price || 0),
-      quantity: Number(item.quantity || 1),
-      customization: item.customization || ""
-    }));
-
-    debugLog(`[ORDER ITEMS INSERT] Inserting ${payloads.length} item records for order ${orderId}:`, payloads);
-
-    try {
-      const { error } = await supabase.from("order_items").insert(payloads);
-      if (error) {
-        console.warn("[ORDER ITEMS INSERT] Notice (items stored in orders.items JSONB column):", error.message);
-      } else {
-        debugLog(`[ORDER ITEMS INSERT] SUCCESS! Stored ${payloads.length} items in relational order_items table.`);
-      }
-    } catch (err) {
-      console.warn("[ORDER ITEMS INSERT] Relational items table notice:", err);
-    }
+  static async apiAddOrderItems(_orderId: string, _items: { menuItemId: string; name: string; price: number; quantity: number; customization?: string }[]): Promise<void> {
+    // Items are persisted directly inside the JSONB 'items' column of public.orders
+    return;
   }
 
   static getPrinterLogs(): PrinterEmulatorLog[] {

@@ -5,7 +5,7 @@ type EventCallback = (payload: any) => void;
 
 /**
  * Singleton Realtime Multiplexer for WebRajya POS.
- * Merges multiple component subscriptions (AdminDashboard, KitchenDashboard, LiveKotMonitor, VirtualPrinterCenter)
+ * Merges multiple component subscriptions (AdminDashboard, KitchenDashboard, PosBillingPortal)
  * into a single unified WebSocket channel, preventing connection bloat and redundant heartbeat overhead.
  */
 class RealtimeBroadcastHub {
