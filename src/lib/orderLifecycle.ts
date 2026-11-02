@@ -509,7 +509,8 @@ export class OrderLifecycleService {
         fulfillment_notes: order.fulfillmentNotes || null,
         delivery_partner: order.deliveryPartner || null,
         delivery_tracking_id: order.deliveryTrackingId || null,
-        timeline: order.timeline || []
+        timeline: order.timeline || [],
+        updated_at: new Date().toISOString()
       };
 
       await supabase.from("orders").update(payload).eq("id", order.id);

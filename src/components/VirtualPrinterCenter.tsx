@@ -66,42 +66,35 @@ export default function VirtualPrinterCenter() {
   useEffect(() => {
     loadData();
 
-    const handleSync = () => loadData(true);
+    const handleSync = () => {
+      setLogs(LocalDB.getPrinterLogs());
+      setKots(LocalDB.getKOTs());
+    };
     window.addEventListener("storage", handleSync);
     window.addEventListener("printer_logs_updated", handleSync);
     window.addEventListener("kots_updated", handleSync);
 
-    // Setup Supabase subscription specifically for automatic printer queue triggers
-    const channel = supabase
-      .channel("realtime_virtual_printer")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "kots" },
-        (p) => {
-          console.log("[VirtualPrinter] Realtime new KOT:", p);
-          if (isAutoPrintActive && printerStatus === "online") {
-            const freshKot = p.new as any;
-            triggerVirtualPrint(freshKot);
-          } else {
-            loadData(true);
-          }
+    // Setup Supabase subscription specifically for automatic printer queue triggers via multiplexed hub
+    const unsubscribeKots = LocalDB.subscribeToKOTs((p) => {
+      if (p?.eventType === "INSERT") {
+        console.log("[VirtualPrinter] Realtime new KOT:", p);
+        if (isAutoPrintActive && printerStatus === "online") {
+          const freshKot = p.new as any;
+          triggerVirtualPrint(freshKot);
+        } else {
+          setKots(LocalDB.getKOTs());
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "kots" },
-        (p) => {
-          console.log("[VirtualPrinter] Realtime KOT update:", p);
-          loadData(true);
-        }
-      )
-      .subscribe();
+      } else if (p?.eventType === "UPDATE") {
+        console.log("[VirtualPrinter] Realtime KOT update:", p);
+        setKots(LocalDB.getKOTs());
+      }
+    });
 
     return () => {
       window.removeEventListener("storage", handleSync);
       window.removeEventListener("printer_logs_updated", handleSync);
       window.removeEventListener("kots_updated", handleSync);
-      supabase.removeChannel(channel);
+      unsubscribeKots();
     };
   }, [isAutoPrintActive, printerStatus]);
 

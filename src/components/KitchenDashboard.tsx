@@ -136,59 +136,63 @@ export default function KitchenDashboard() {
   useEffect(() => {
     loadData();
 
-    // Event listeners
-    const handleSync = () => loadData(true);
+    // Event listeners: read local ledger without network calls
+    const handleSync = () => {
+      setKots(LocalDB.getKOTs());
+    };
     window.addEventListener("storage", handleSync);
     window.addEventListener("kots_updated", handleSync);
-    window.addEventListener("new_order", () => {
-      setTimeout(() => {
-        loadData(true);
-      }, 300);
-    });
+    window.addEventListener("new_order", handleSync);
 
-    // Realtime polling fallback
+    // Realtime polling fallback: conservative 60s poller, paused when backgrounded or restricted
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (LocalDB.isRestricted()) return;
       loadData(true);
-    }, 5000);
+    }, 60000);
 
-    // Supabase Realtime subscriber connection
-    console.log("[Supabase Realtime] Connecting Channel for KOT actions...");
-    addPrinterLog("Establishing WebSocket Realtime bridge with Supabase Cloud...");
-    
-    const channel = supabase
-      .channel("realtime:kots")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "kots" },
-        (p) => {
-          console.log("[Realtime KOT insert event]", p);
-          addPrinterLog(`Realtime signal: Incoming ticket ${p.new.id || "Unknown"}`);
-          loadData(true);
+    // Supabase Realtime subscriber connection via multiplexed hub
+    const unsubscribeKots = LocalDB.subscribeToKOTs((p) => {
+      if (p?.eventType === "INSERT") {
+        const raw = p.new as any;
+        if (raw && raw.id) {
+          const newKot: KOT = {
+            id: raw.id,
+            orderId: raw.order_id,
+            tableNumber: raw.table_number || "Takeaway",
+            customerName: raw.customer_name || "Guest User",
+            orderType: raw.order_type || "takeaway",
+            status: raw.status || "New Order",
+            specialInstructions: raw.special_instructions || "None",
+            createdAt: raw.created_at || new Date().toISOString(),
+            preparationTime: Number(raw.preparation_time || 15),
+            printed: raw.printed !== undefined ? !!raw.printed : (Number(raw.printed_count || 0) > 0),
+            items: Array.isArray(raw.items) ? raw.items : (typeof raw.items === "string" ? JSON.parse(raw.items) : [])
+          };
+          setKots(prev => {
+            const exists = prev.some(k => k.id === newKot.id);
+            if (exists) return prev;
+            playNewOrderNotification();
+            return [newKot, ...prev];
+          });
+          addPrinterLog(`Realtime signal: Incoming ticket ${newKot.id}`);
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "kots" },
-        (p) => {
-          console.log("[Realtime KOT update event]", p);
-          loadData(true);
+      } else if (p?.eventType === "UPDATE") {
+        const raw = p.new as any;
+        if (raw && raw.id) {
+          setKots(prev => prev.map(k => k.id === raw.id ? { ...k, status: raw.status || k.status } : k));
         }
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          addPrinterLog("Realtime channel established! Heartbeat ping is ACTIVE.");
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          addPrinterLog("[WARNING] Realtime socket degraded. Poller backup active.");
-        }
-      });
+      }
+    });
 
     return () => {
       window.removeEventListener("storage", handleSync);
       window.removeEventListener("kots_updated", handleSync);
+      window.removeEventListener("new_order", handleSync);
       clearInterval(interval);
-      supabase.removeChannel(channel);
+      unsubscribeKots();
     };
-  }, [kots.length]);
+  }, []);
 
   // Handle thermal receipt physical/virtual compilation
   const simulateThermalPrint = async (kot: KOT, isReprint = false) => {

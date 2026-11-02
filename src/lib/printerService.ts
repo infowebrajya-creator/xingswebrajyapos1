@@ -110,17 +110,17 @@ export class PhysicalThermalPrinter {
     const lines: PrintableLine[] = [];
 
     // 1. Metadata Section (Left aligned)
-    const rawKot = (data as any).kotNumber || (data as any).kot_number || data.id || "001";
-    const kotClean = String(rawKot).replace(/KOT-?/i, "").trim() || "001";
-    const kotNum = kotClean.length < 3 && /^\d+$/.test(kotClean) ? kotClean.padStart(3, "0") : kotClean;
+    const rawKot = (data as any).tokenNumber || (data as any).kotNumber || (data as any).kot_number || data.id || "1";
+    const kotClean = String(rawKot).replace(/KOT-?/i, "").replace(/^SR-/i, "").trim() || "1";
+    const tokenNo = kotClean;
 
-    const rawOrder = (data as any).orderId || (data as any).order_id || data.id || "1042";
-    const orderClean = String(rawOrder).replace(/^#/, "");
+    const rawOrder = (data as any).billNo || (data as any).orderId || (data as any).order_id || data.id || "1";
+    const orderClean = String(rawOrder).replace(/^(SR-|#|TBL-|POS-)/i, "").trim() || "1";
 
-    const leftMeta = `KOT: ${kotNum}`;
-    const rightMeta = `#${orderClean}`;
+    const leftMeta = `TOKEN: #${tokenNo}`;
+    const rightMeta = `BILL: #${orderClean}`;
     const spacesMeta = Math.max(1, 32 - leftMeta.length - rightMeta.length);
-    lines.push({ text: leftMeta + " ".repeat(spacesMeta) + rightMeta, align: "left" });
+    lines.push({ text: leftMeta + " ".repeat(spacesMeta) + rightMeta, align: "left", bold: true });
 
     const rawTable = data.tableNumber;
     const isTakeaway = (data.orderType || "").toLowerCase() === "takeaway";
@@ -178,9 +178,15 @@ export class PhysicalThermalPrinter {
     lines.push({ text: "-----------------", align: "center" });
 
     // 2. Metadata Section
-    const rawBillNo = data.billNo || data.billNumber || data.id || "SR-345484";
-    const billNo = String(rawBillNo).toUpperCase().startsWith("SR-") ? String(rawBillNo) : `SR-${rawBillNo}`;
-    lines.push({ text: `Bill No: ${billNo}`, align: "left" });
+    const rawBillNo = data.billNo || data.billNumber || data.id || "1";
+    const cleanBillNo = String(rawBillNo).replace(/^SR-/i, "").replace(/^BILL-?/i, "").trim() || "1";
+    const rawToken = data.tokenNumber || (data as any).kotNumber || cleanBillNo;
+    const cleanToken = String(rawToken).replace(/^(KOT-|TOKEN-|SR-)/i, "").trim() || cleanBillNo;
+
+    const leftBill = `Bill No: #${cleanBillNo}`;
+    const rightToken = `Token: #${cleanToken}`;
+    const spacesBill = Math.max(1, 32 - leftBill.length - rightToken.length);
+    lines.push({ text: leftBill + " ".repeat(spacesBill) + rightToken, align: "left", bold: true });
 
     const rawTable = data.tableNumber || data.table || data.table_number;
     const isTakeaway = (data.orderType || "").toLowerCase() === "takeaway";
@@ -579,9 +585,12 @@ export class PhysicalThermalPrinter {
       `;
     }
 
-    const invoiceNo = data.id || "SR-1024";
-    const billNo = data.id || "SR-1024";
-    const orderNumOnly = invoiceNo.replace("SR-", "#");
+    const rawBill = data.billNo || data.billNumber || data.id || "1";
+    const cleanBillNo = String(rawBill).replace(/^SR-/i, "").replace(/^BILL-?/i, "").trim() || "1";
+    const rawToken = data.tokenNumber || (data as any).kotNumber || cleanBillNo;
+    const cleanToken = String(rawToken).replace(/^(KOT-|TOKEN-|SR-)/i, "").trim() || cleanBillNo;
+    const billNo = cleanBillNo;
+    const orderNumOnly = `#${cleanBillNo}`;
     
     const isTakeaway = (data.orderType || "").toLowerCase() === "takeaway";
     const subtotal = data.subtotal || 0;
@@ -662,9 +671,9 @@ export class PhysicalThermalPrinter {
         <!-- Order Information Section -->
         <div style="font-size: ${finalFontSize * 0.9}px; font-weight: 700; line-height: 1.35;">
           <div style="display: flex; justify-content: space-between;">
-            <span><b>Memo#:</b> ${billNo}${copyLabel}</span>
+            <span><b>Bill No:</b> #${cleanBillNo}${copyLabel}</span>
+            <span><b>Token No:</b> #${cleanToken}</span>
             <span><b>${createdAtDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b></span>
-            <span><b>${createdAtDate.toLocaleDateString()}</b></span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-top: 2px;">
             ${opts.showCashier ? `<span><b>User:</b> ${opts.cashierName}</span>` : `<span><b>Order:</b> ${orderNumOnly}</span>`}
@@ -1989,9 +1998,11 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
 
   // 2. Metadata Section (Left aligned)
   builder.alignLeft();
-  const rawBillNo = data.billNo || data.billNumber || data.id || "SR-345484";
-  const billNo = String(rawBillNo).toUpperCase().startsWith("SR-") ? String(rawBillNo) : `SR-${rawBillNo}`;
-  builder.writeText(`Bill No: ${billNo}\n`);
+  const rawBillNo = data.billNo || data.billNumber || data.id || "1";
+  const cleanBillNo = String(rawBillNo).replace(/^SR-/i, "").replace(/^BILL-?/i, "").trim() || "1";
+  const rawToken = data.tokenNumber || (data as any).kotNumber || cleanBillNo;
+  const cleanToken = String(rawToken).replace(/^(KOT-|TOKEN-|SR-)/i, "").trim() || cleanBillNo;
+  builder.writeText(`Bill No: #${cleanBillNo}    Token No: #${cleanToken}\n`);
 
   // Table (Omit if takeaway or no table)
   const rawTable = data.tableNumber || data.table || data.table_number;
@@ -2194,15 +2205,15 @@ export function buildKOTESCPOS(data: any, printerSettings: WRPrinterSettings): s
   builder.alignLeft();
 
   // KOT number and Reference Order number
-  const rawKot = data.kotNumber || data.kot_number || data.id || "001";
-  const kotClean = String(rawKot).replace(/KOT-?/i, "").trim() || "001";
-  const kotNum = kotClean.length < 3 && /^\d+$/.test(kotClean) ? kotClean.padStart(3, "0") : kotClean;
+  const rawKot = data.tokenNumber || data.kotNumber || data.kot_number || data.id || "1";
+  const kotClean = String(rawKot).replace(/^(KOT-|TOKEN-|SR-)/i, "").trim() || "1";
+  const tokenNo = kotClean;
 
-  const rawOrder = data.orderId || data.order_id || data.id || "1042";
-  const orderClean = String(rawOrder).replace(/^#/, "");
+  const rawOrder = data.billNo || data.orderId || data.order_id || data.id || "1";
+  const orderClean = String(rawOrder).replace(/^(SR-|#|TBL-|POS-)/i, "").trim() || "1";
 
-  const leftMeta = `KOT: ${kotNum}`;
-  const rightMeta = `#${orderClean}`;
+  const leftMeta = `TOKEN: #${tokenNo}`;
+  const rightMeta = `BILL: #${orderClean}`;
   const spacesMeta = Math.max(1, 32 - leftMeta.length - rightMeta.length);
   builder.writeText(leftMeta + " ".repeat(spacesMeta) + rightMeta + "\n");
 

@@ -47,39 +47,49 @@ export default function LiveKotMonitor() {
   useEffect(() => {
     loadKOTs();
 
-    // Handle updates from localStorage or sync actions
-    const handleSync = () => loadKOTs(true);
+    // Handle updates from localStorage or sync actions without network overhead
+    const handleSync = () => {
+      setKots(LocalDB.getKOTs());
+    };
     window.addEventListener("storage", handleSync);
     window.addEventListener("kots_updated", handleSync);
 
-    // Setup Supabase Realtime channel
-    console.log("[Supabase LiveKOTMonitor] Connecting channel...");
-    const channel = supabase
-      .channel("realtime_kot_monitor")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "kots" },
-        (payload) => {
-          console.log("Realtime INSERT seen in LiveKotMonitor:", payload);
-          loadKOTs(true);
+    // Setup Supabase Realtime channel via multiplexed hub
+    const unsubscribeKots = LocalDB.subscribeToKOTs((payload) => {
+      if (payload?.eventType === "INSERT") {
+        const raw = payload.new as any;
+        if (raw && raw.id) {
+          setKots(prev => {
+            const exists = prev.some(k => k.id === raw.id);
+            if (exists) return prev;
+            const newKot: KOT = {
+              id: raw.id,
+              orderId: raw.order_id,
+              tableNumber: raw.table_number || "Takeaway",
+              customerName: raw.customer_name || "Guest User",
+              orderType: raw.order_type || "takeaway",
+              status: raw.status || "New Order",
+              specialInstructions: raw.special_instructions || "None",
+              createdAt: raw.created_at || new Date().toISOString(),
+              preparationTime: Number(raw.preparation_time || 15),
+              printed: raw.printed !== undefined ? !!raw.printed : (Number(raw.printed_count || 0) > 0),
+              items: Array.isArray(raw.items) ? raw.items : (typeof raw.items === "string" ? JSON.parse(raw.items) : [])
+            };
+            return [newKot, ...prev];
+          });
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "kots" },
-        (payload) => {
-          console.log("Realtime UPDATE seen in LiveKotMonitor:", payload);
-          loadKOTs(true);
+      } else if (payload?.eventType === "UPDATE") {
+        const raw = payload.new as any;
+        if (raw && raw.id) {
+          setKots(prev => prev.map(k => k.id === raw.id ? { ...k, status: raw.status || k.status } : k));
         }
-      )
-      .subscribe((status) => {
-        console.log("Realtime channel status:", status);
-      });
+      }
+    });
 
     return () => {
       window.removeEventListener("storage", handleSync);
       window.removeEventListener("kots_updated", handleSync);
-      supabase.removeChannel(channel);
+      unsubscribeKots();
     };
   }, []);
 

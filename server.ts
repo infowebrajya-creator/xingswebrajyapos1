@@ -27,8 +27,8 @@ async function startServer() {
   app.get("/api/health", async (req, res) => {
     try {
       let supabaseStatus: "HEALTHY" | "DEGRADED" | "UNCONFIGURED" = "UNCONFIGURED";
-      const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://jkkwrhywfpbitwvffkxx.supabase.co";
-      const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_D1rREhO08nd1vWNmxyugCg_Fff4X10Y";
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://pjgjtnyszuvmlmuetahn.supabase.co";
+      const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_8oZHutm6Iqf2WSLziAjjuQ_nWO7PHdj";
 
       if (supabaseUrl && supabaseKey) {
         try {

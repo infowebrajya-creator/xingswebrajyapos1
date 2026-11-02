@@ -284,7 +284,7 @@ export default function ReportsDashboard({
             <Calendar className="w-4 h-4 text-[#aa7c11]" />
             <span>Reporting Window:</span>
             <span className="px-2.5 py-1 bg-amber-50 text-amber-900 rounded-lg border border-amber-200/80 font-mono text-[11px]">
-              {dateRange.label} ({filteredOrders.filter(isValidOrder).length} valid orders)
+              {dateRange.label} ({metrics.periodOrders} valid orders)
             </span>
           </div>
 

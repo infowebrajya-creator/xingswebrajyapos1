@@ -393,9 +393,12 @@ export class PrintQueueManager {
         job.status = "Printing";
         this.saveQueue(queue);
 
-        // Fetch corresponding order and settings
-        const allOrders = await LocalDB.fetchOrders();
-        const order = allOrders.find((o) => o.id === job.orderId);
+        // Retrieve corresponding order from local store or cache first
+        let order = LocalDB.getOrders().find((o) => o.id === job.orderId);
+        if (!order) {
+          const fresh = await LocalDB.fetchOrders({ limit: 50 });
+          order = fresh.find((o) => o.id === job.orderId);
+        }
         const settings = LocalDB.getSettings();
 
         if (!order) {
@@ -621,10 +624,14 @@ export class PrintQueueManager {
       }
     });
 
-    // 3. Start a periodic watchdog every 10 seconds to process the queue in case of retries
+    // 3. Start a periodic watchdog to process the queue in case of retries
     setInterval(() => {
-      this.processQueue();
-    }, 10000);
+      const queue = this.getQueue();
+      const hasActionableJobs = queue.some(j => j.status === "Pending" || j.status === "Retrying");
+      if (hasActionableJobs) {
+        this.processQueue();
+      }
+    }, 15000);
   }
 
   private static addHistoryLog(log: Omit<PrintHistoryLog, "id" | "printTime">) {

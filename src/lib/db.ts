@@ -1,17 +1,18 @@
 import { MenuItem, Review, KOT, KOTStatus, OrderItem, RestaurantTable, PrinterEmulatorLog, Category, PaymentRecord, PaymentStatus, PaymentMethod, SplitItemAssignment, SplitSettlement, Shift, ShiftStatus, CashAdjustment, CashAdjustmentType, ShiftFinancials, OrderStatus } from "../types";
 import { menuItems as defaultMenuItems, reviews as defaultReviews, categories as defaultCategories } from "../data";
 import { createClient } from "@supabase/supabase-js";
+import { RealtimeHub } from "./realtimeHub";
 
 // Load configuration with broad support for multiple environments
 const anyMeta = import.meta as any;
 const supabaseUrl = anyMeta.env?.VITE_SUPABASE_URL || 
                     anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || 
-                    "https://jkkwrhywfpbitwvffkxx.supabase.co";
+                    "https://pjgjtnyszuvmlmuetahn.supabase.co";
 
 const supabaseKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || 
                     anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
                     anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-                    "sb_publishable_D1rREhO08nd1vWNmxyugCg_Fff4X10Y";
+                    "sb_publishable_8oZHutm6Iqf2WSLziAjjuQ_nWO7PHdj";
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -25,6 +26,89 @@ function debugLog(...args: any[]) {
     console.log(...args);
   }
 }
+
+// =========================================================================
+// SUPABASE EGRESS OPTIMIZATION ENGINE: CIRCUIT BREAKER & CACHE
+// =========================================================================
+
+export class SupabaseCircuitBreaker {
+  private static restrictedUntil: number = 0;
+  private static isRestricted: boolean = false;
+  private static restrictionReason: string = "";
+
+  static checkError(status?: number | string, errorObj?: any): boolean {
+    const s = Number(status);
+    const msg = (errorObj?.message || errorObj?.details || errorObj?.hint || "").toLowerCase();
+    
+    // HTTP 402 = Payment Required (Egress Quota Exceeded)
+    // HTTP 429 = Too Many Requests (Rate limit)
+    // HTTP 403 = Forbidden / Restricted project / Paused
+    if (
+      s === 402 || 
+      s === 429 || 
+      (s === 403 && (msg.includes("quota") || msg.includes("restricted") || msg.includes("disabled"))) ||
+      msg.includes("exceeded its quota") ||
+      msg.includes("quota exceeded") ||
+      msg.includes("project is restricted") ||
+      msg.includes("plan limit")
+    ) {
+      this.isRestricted = true;
+      this.restrictionReason = `HTTP ${status}: ${errorObj?.message || "Supabase Quota / Plan Restriction"}`;
+      this.restrictedUntil = Date.now() + 5 * 60 * 1000; // 5-minute cooldown
+      console.warn(
+        `[SUPABASE CIRCUIT BREAKER] Project restricted or quota exceeded (${this.restrictionReason}). Background polling and retries suspended for 5m. Operating in local offline mode.`
+      );
+      return true;
+    }
+    return false;
+  }
+
+  static shouldBypassNetwork(): boolean {
+    if (this.isRestricted) {
+      if (Date.now() < this.restrictedUntil) {
+        return true;
+      }
+      this.isRestricted = false;
+    }
+    return false;
+  }
+
+  static getStatus() {
+    return {
+      isRestricted: this.isRestricted && Date.now() < this.restrictedUntil,
+      reason: this.restrictionReason,
+      cooldownRemainingMs: Math.max(0, this.restrictedUntil - Date.now())
+    };
+  }
+
+  static reset() {
+    this.isRestricted = false;
+    this.restrictedUntil = 0;
+    this.restrictionReason = "";
+  }
+}
+
+// In-flight request deduplicator to eliminate concurrent duplicate queries
+const inFlightRequests = new Map<string, Promise<any>>();
+
+function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
+  if (inFlightRequests.has(key)) {
+    debugLog(`[Deduplicator] Sharing in-flight request for: ${key}`);
+    return inFlightRequests.get(key) as Promise<T>;
+  }
+  const promise = requestFn().finally(() => {
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, promise);
+  return promise;
+}
+
+// In-memory cache for static menu and settings
+let menuCatalogCache: { data: MenuItem[]; timestamp: number } | null = null;
+const MENU_CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+let restaurantSettingsCache: { data: RestaurantSettings; timestamp: number } | null = null;
+const SETTINGS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 export function normalizeTableNumber(num?: string | number): string {
   if (!num && num !== 0) return "";
@@ -74,6 +158,8 @@ export interface Order {
     addedAt?: string;
     addedBy?: string;
     kotNumber?: string;
+  billNo?: string;
+  tokenNumber?: string;
     sessionNumber?: number;
     isManual?: boolean;
     category?: string;
@@ -98,6 +184,8 @@ export interface Order {
   payments?: PaymentRecord[];
   splitSettlements?: SplitSettlement[];
   kotNumber?: string;
+  billNo?: string;
+  tokenNumber?: string;
   kotPrintStatus?: "Pending" | "Printing" | "Printed" | "Failed";
   kotPrintTimestamp?: string;
   billPrintStatus?: "Pending" | "Printing" | "Printed" | "Failed";
@@ -331,7 +419,7 @@ const defaultAuditLogs: AuditLog[] = [];
 
 // Clean local storage migration on application load
 if (typeof window !== "undefined") {
-  const ERASE_VERSION = "webrajya_base_v1";
+  const ERASE_VERSION = "webrajya_base_v2";
   if (localStorage.getItem("wr_db_erased_version") !== ERASE_VERSION) {
     localStorage.setItem("ij_orders", JSON.stringify([]));
     localStorage.setItem("ij_reviews", JSON.stringify([]));
@@ -507,7 +595,16 @@ export class LocalDB {
         unique.push(item);
       }
     }
-    localStorage.setItem("ij_orders", JSON.stringify(unique));
+    // Storage quota protection: keep most recent 1000 orders in local ledger
+    const bounded = unique.slice(0, 1000);
+    try {
+      localStorage.setItem("ij_orders", JSON.stringify(bounded));
+    } catch (e) {
+      console.warn("[LocalDB] LocalStorage quota pressure, pruning older orders:", e);
+      try {
+        localStorage.setItem("ij_orders", JSON.stringify(bounded.slice(0, 250)));
+      } catch (_) {}
+    }
     window.dispatchEvent(new Event("storage"));
   }
 
@@ -558,6 +655,96 @@ export class LocalDB {
     window.dispatchEvent(new Event("tables_updated"));
   }
 
+  static async fetchTables(force = false): Promise<RestaurantTable[]> {
+    try {
+      this.incrementApiCallCount("fetchTables");
+      const { data, error } = await supabase
+        .from("tables")
+        .select("id, table_number, capacity, status, seating_area")
+        .order("table_number", { ascending: true });
+
+      if (error || !data || data.length === 0) {
+        return this.getTables();
+      }
+
+      const mapped: RestaurantTable[] = data.map((t: any) => ({
+        id: String(t.id),
+        tableNumber: String(t.table_number),
+        capacity: Number(t.capacity || 4),
+        seatingArea: t.seating_area || "Main Dining Hall",
+        status: (t.status === "Occupied" || t.status === "Billed") ? t.status : "Available"
+      }));
+
+      // Ensure parcel tables are present
+      const hasP1 = mapped.some(t => isSameTable(t.tableNumber, "P1"));
+      const hasP2 = mapped.some(t => isSameTable(t.tableNumber, "P2"));
+      const hasP3 = mapped.some(t => isSameTable(t.tableNumber, "P3"));
+      if (!hasP1) mapped.push({ id: "tbl-p01", tableNumber: "P1", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+      if (!hasP2) mapped.push({ id: "tbl-p02", tableNumber: "P2", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+      if (!hasP3) mapped.push({ id: "tbl-p03", tableNumber: "P3", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
+
+      this.saveTables(mapped);
+      return mapped;
+    } catch (err) {
+      console.warn("[Supabase] Tables fetch fallback to local:", err);
+      return this.getTables();
+    }
+  }
+
+
+  /**
+   * Returns the next sequential Bill Number starting from 1
+   */
+  static getNextBillNumber(): number {
+    const orders = this.getOrders();
+    const realOrders = orders.filter(o => 
+      !o.id.startsWith("HISTORICAL") && 
+      !o.id.includes("REVENUE") && 
+      !o.customerName?.toLowerCase().includes("historical") &&
+      !(o as any).isHistorical &&
+      (!o.createdAt || o.createdAt >= '2026-11-01')
+    );
+    if (realOrders.length === 0) return 1;
+
+    let max = 0;
+    for (const o of realOrders) {
+      const billStr = o.billNo || o.id;
+      const match = billStr.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > max && num < 100000) {
+          max = num;
+        }
+      }
+    }
+    return max > 0 ? max + 1 : realOrders.length + 1;
+  }
+
+  /**
+   * Returns the next sequential Token / KOT Number starting from 1
+   */
+  static getNextTokenNumber(): number {
+    const kots = this.getKOTs();
+    const realKots = kots.filter(k => 
+      !k.id.startsWith("HISTORICAL") && 
+      !(k as any).kotNumber?.includes("HISTORICAL") &&
+      (!k.createdAt || k.createdAt >= '2026-11-01')
+    );
+    if (realKots.length === 0) return 1;
+
+    let max = 0;
+    for (const k of realKots) {
+      const tokenStr = String((k as any).kotNumber || k.id);
+      const match = tokenStr.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > max && num < 100000) {
+          max = num;
+        }
+      }
+    }
+    return max > 0 ? max + 1 : realKots.length + 1;
+  }
 
   static addOrder(order: Omit<Order, "id" | "createdAt">): Order {
     if (order.tableNumber) {
@@ -566,8 +753,8 @@ export class LocalDB {
         const orders = this.getOrders();
         const idx = orders.findIndex(o => o.id === activeOrder.id);
         if (idx !== -1) {
-          const kotCount = this.getKOTs().length + 1;
-          const kotNumber = `KOT-${String(kotCount).padStart(4, "0")}`;
+          const nextTokenNo = this.getNextTokenNumber();
+          const kotNumber = `KOT-${nextTokenNo}`;
           const addOnCount = (activeOrder.addOnCount || 0) + 1;
           
           const newlyAddedItemsWithTracking = order.items.map((item) => ({
@@ -705,10 +892,10 @@ export class LocalDB {
     }
 
     const orders = this.getOrders();
-    const uniqueIdSuffix = Math.floor(100 + Math.random() * 900);
-    const newId = `SR-${1000 + orders.length}-${uniqueIdSuffix}`;
-    const kotCount = this.getKOTs().length + 1;
-    const kotNumber = `KOT-${String(kotCount).padStart(4, "0")}`;
+    const nextBillNo = this.getNextBillNumber();
+    const nextTokenNo = this.getNextTokenNumber();
+    const newId = `SR-${nextBillNo}`;
+    const kotNumber = `KOT-${nextTokenNo}`;
 
     const initialItemsWithTracking = order.items.map((item) => ({
       menuItemId: item.menuItemId,
@@ -742,7 +929,9 @@ export class LocalDB {
       createdAt: new Date().toISOString(),
       timeline,
       addOnCount: 0,
-      kotNumber: kotNumber
+      kotNumber: kotNumber,
+      billNo: String(nextBillNo),
+      tokenNumber: String(nextTokenNo)
     };
     orders.unshift(fullOrder);
     this.saveOrders(orders);
@@ -857,6 +1046,35 @@ export class LocalDB {
     window.dispatchEvent(new Event("storage"));
   }
 
+  static async fetchCategories(force = false): Promise<Category[]> {
+    try {
+      this.incrementApiCallCount("fetchCategories");
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, name, icon, sort_order, is_active")
+        .order("sort_order", { ascending: true });
+
+      if (error || !data || data.length === 0) {
+        return this.getCategories();
+      }
+
+      const mapped: Category[] = data.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        icon: c.icon || "🍽️",
+        description: c.description || "",
+        sortOrder: c.sort_order || 0,
+        isActive: c.is_active !== false
+      }));
+
+      this.saveCategories(mapped);
+      return mapped;
+    } catch (err) {
+      console.warn("[Supabase] Categories fetch fallback to local:", err);
+      return this.getCategories();
+    }
+  }
+
   static getAuditLogs(): AuditLog[] {
     const stored = localStorage.getItem("ij_audit_logs");
     if (!stored) {
@@ -940,115 +1158,236 @@ export class LocalDB {
   }
 
   static subscribeToOrders(onUpdate: (event: any) => void): () => void {
-    const channelName = `orders_realtime_stream_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        (payload) => {
-          debugLog("[REALTIME EVENT] Received Supabase postgres_changes event for orders:", payload.eventType, payload.new || payload.old);
-          onUpdate(payload);
-        }
-      )
-      .subscribe((status) => {
-        debugLog("[REALTIME EVENT] Supabase order stream channel status:", status);
-      });
+    return RealtimeHub.subscribeToOrders(onUpdate);
+  }
 
-    return () => {
-      supabase.removeChannel(channel);
+  static subscribeToKOTs(onUpdate: (event: any) => void): () => void {
+    return RealtimeHub.subscribeToKOTs(onUpdate);
+  }
+
+  static isRealtimeHealthy(): boolean {
+    return RealtimeHub.isHealthy();
+  }
+
+  static getRealtimeStatus(): string {
+    return RealtimeHub.getStatus();
+  }
+
+  static isRestricted(): boolean {
+    return SupabaseCircuitBreaker.shouldBypassNetwork();
+  }
+
+  static getCircuitBreakerStatus() {
+    return SupabaseCircuitBreaker.getStatus();
+  }
+
+  static resetCircuitBreaker(): void {
+    SupabaseCircuitBreaker.reset();
+  }
+
+  static invalidateMenuCache(): void {
+    menuCatalogCache = null;
+  }
+
+  static invalidateSettingsCache(): void {
+    restaurantSettingsCache = null;
+  }
+
+  private static lastOrdersSyncTimestamp: string | null = null;
+
+  static getLastOrdersSyncTimestamp(): string | null {
+    return this.lastOrdersSyncTimestamp;
+  }
+
+  static setLastOrdersSyncTimestamp(ts: string): void {
+    this.lastOrdersSyncTimestamp = ts;
+  }
+
+  static mapSupabaseOrderToOrder(item: any): Order {
+    const parsedItems = Array.isArray(item.items) ? item.items : (typeof item.items === 'string' ? JSON.parse(item.items) : []);
+    const itemSource = item.special_instructions?.includes("[SOURCE:POS]") 
+      ? "POS"
+      : item.special_instructions?.includes("[SOURCE:QR]")
+      ? "QR"
+      : (parsedItems[0]?.addedBy?.toUpperCase().includes("POS") || item.payment_method?.toUpperCase().includes("POS"))
+      ? "POS"
+      : (item.order_type === "dine-in" && item.table_number ? "QR" : "ONLINE");
+
+    const billedBy = item.special_instructions?.includes("[SOURCE:POS]")
+      ? "POS"
+      : (parsedItems[0]?.addedBy)
+      ? parsedItems[0].addedBy
+      : (item.order_type === "dine-in" ? "Table QR" : undefined);
+
+    const settings = this.getSettings();
+    const isTakeaway = (item.order_type || "").toLowerCase() === "takeaway" || String(item.table_number || "").toUpperCase().startsWith("P");
+    const subtotal = Number(item.subtotal || 0);
+    const discountAmount = Number(item.discount_amount || 0);
+    const packagingCharge = Number(item.packaging_charge ?? (isTakeaway ? 10 : 0));
+    const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Number(item.gst || 0) : 0;
+    const grandTotal = Number(item.grand_total ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
+
+    return {
+      id: item.id,
+      customerName: item.customer_name || "Guest User",
+      phoneNumber: item.phone_number || "",
+      email: item.email || "",
+      orderType: item.order_type || "takeaway",
+      tableNumber: item.table_number || undefined,
+      address: item.address || undefined,
+      items: parsedItems,
+      subtotal,
+      gst,
+      packagingCharge,
+      discountAmount,
+      appliedCoupon: item.applied_coupon || undefined,
+      grandTotal,
+      paymentStatus: item.payment_status || "Pending",
+      orderStatus: item.order_status || "New Order",
+      createdAt: item.created_at || new Date().toISOString(),
+      paymentMethod: item.payment_method || "Cash on Delivery",
+      kotNumber: item.kot_number || undefined,
+      source: itemSource,
+      billedBy: billedBy,
+      paidAmount: item.paid_amount ? Number(item.paid_amount) : undefined,
+      remainingAmount: item.remaining_amount ? Number(item.remaining_amount) : undefined,
+      splitSettlements: item.split_settlements || undefined,
+      timeline: item.timeline || undefined
     };
   }
 
-  static async fetchOrders(): Promise<Order[]> {
-    this.incrementApiCallCount("fetchOrders");
-    debugLog("[ORDER MANAGEMENT FETCH] Loading orders list from Supabase...");
-    try {
-      const { data, error, status } = await supabase
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false });
+  static async fetchOrdersDelta(options?: { force?: boolean }): Promise<{ orders: Order[]; changedCount: number }> {
+    if (!options?.force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
+      return { orders: this.getOrders(), changedCount: 0 };
+    }
 
-      if (error) {
-        console.warn("[ORDER MANAGEMENT FETCH] Supabase fetch warning:", error);
-        this.addAuditLog(
-          "Supabase API Warning",
-          `HTTP ${status} - Failed to fetch orders from Supabase REST endpoint: ${error.message} (${error.details}). Check if 'orders' table exists in dashboard. Falling back to local ledger cache.`,
-          "System (Supabase)"
-        );
-        const local = this.getOrders();
-        debugLog(`[ORDER MANAGEMENT FETCH] Fallback loaded ${local.length} orders from local cache. IDs:`, local.map(o => o.id));
-        return local;
+    if (!this.lastOrdersSyncTimestamp) {
+      const orders = await this.fetchOrders({ limit: 100, force: options?.force });
+      this.lastOrdersSyncTimestamp = new Date().toISOString();
+      return { orders, changedCount: orders.length };
+    }
+
+    const sinceTimestamp = this.lastOrdersSyncTimestamp;
+    const dedupeKey = `fetchOrdersDelta_${sinceTimestamp}`;
+
+    return deduplicateRequest(dedupeKey, async () => {
+      this.incrementApiCallCount("fetchOrdersDelta");
+      try {
+        const { data, error, status } = await supabase
+          .from("orders")
+          .select("id, customer_name, phone_number, email, order_type, table_number, address, items, subtotal, gst, packaging_charge, discount_amount, applied_coupon, grand_total, payment_status, order_status, created_at, updated_at, payment_method, kot_number, special_instructions, split_settlements, timeline")
+          .gt("updated_at", sinceTimestamp)
+          .order("updated_at", { ascending: false });
+
+        if (error) {
+          SupabaseCircuitBreaker.checkError(status, error);
+          return { orders: this.getOrders(), changedCount: 0 };
+        }
+
+        this.lastOrdersSyncTimestamp = new Date().toISOString();
+
+        if (!data || data.length === 0) {
+          // Zero changes over wire: ~2 bytes payload
+          return { orders: this.getOrders(), changedCount: 0 };
+        }
+
+        const changedOrders = data.map((item: any) => this.mapSupabaseOrderToOrder(item));
+        const currentOrders = this.getOrders();
+        const map = new Map<string, Order>();
+        for (const o of changedOrders) map.set(o.id, o);
+        for (const o of currentOrders) if (!map.has(o.id)) map.set(o.id, o);
+        const merged = Array.from(map.values());
+        this.saveOrders(merged);
+
+        return { orders: merged, changedCount: changedOrders.length };
+      } catch (err: any) {
+        SupabaseCircuitBreaker.checkError(undefined, err);
+        return { orders: this.getOrders(), changedCount: 0 };
       }
+    });
+  }
 
-      debugLog(`[ORDER MANAGEMENT FETCH] Successfully retrieved ${(data || []).length} orders from Supabase. IDs:`, (data || []).map((o: any) => o.id));
-
-      // Translate snake_case keys back to client camelCase with strict ID deduplication
-      const seenIds = new Set<string>();
-      const mapped: Order[] = [];
-      for (const item of (data || [])) {
-        if (!item || !item.id || seenIds.has(item.id)) continue;
-        seenIds.add(item.id);
-        const parsedItems = Array.isArray(item.items) ? item.items : (typeof item.items === 'string' ? JSON.parse(item.items) : []);
-        const itemSource = item.special_instructions?.includes("[SOURCE:POS]") 
-          ? "POS"
-          : item.special_instructions?.includes("[SOURCE:QR]")
-          ? "QR"
-          : (parsedItems[0]?.addedBy?.toUpperCase().includes("POS") || item.payment_method?.toUpperCase().includes("POS"))
-          ? "POS"
-          : (item.order_type === "dine-in" && item.table_number ? "QR" : "ONLINE");
-
-        const billedBy = item.special_instructions?.includes("[SOURCE:POS]")
-          ? "POS"
-          : (parsedItems[0]?.addedBy)
-          ? parsedItems[0].addedBy
-          : (item.order_type === "dine-in" ? "Table QR" : undefined);
-
-        const settings = this.getSettings();
-        const isTakeaway = (item.order_type || "").toLowerCase() === "takeaway" || String(item.table_number || "").toUpperCase().startsWith("P");
-        const subtotal = Number(item.subtotal || 0);
-        const discountAmount = Number(item.discount_amount || 0);
-        const packagingCharge = Number(item.packaging_charge ?? (isTakeaway ? 10 : 0));
-        const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Number(item.gst || 0) : 0;
-        const grandTotal = Number(item.grand_total ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
-
-        mapped.push({
-          id: item.id,
-          customerName: item.customer_name || "Guest User",
-          phoneNumber: item.phone_number || "",
-          email: item.email || "",
-          orderType: item.order_type || "takeaway",
-          tableNumber: item.table_number || undefined,
-          address: item.address || undefined,
-          items: parsedItems,
-          subtotal,
-          gst,
-          packagingCharge,
-          discountAmount,
-          appliedCoupon: item.applied_coupon || undefined,
-          grandTotal,
-          paymentStatus: item.payment_status || "Pending",
-          orderStatus: item.order_status || "New Order",
-          createdAt: item.created_at || new Date().toISOString(),
-          paymentMethod: item.payment_method || "Cash on Delivery",
-          kotNumber: item.kot_number || undefined,
-          source: itemSource,
-          billedBy: billedBy
-        });
-      }
-
-      // Synchronize local disk cache to match remote Supabase database
-      this.saveOrders(mapped);
-      return mapped;
-    } catch (err: any) {
-      console.warn("[ORDER MANAGEMENT FETCH] Supabase transport error:", err);
-      this.addAuditLog(
-        "Supabase Bridge Offline",
-        `Transport link offline: ${err.message || err.toString()}. Reading orders offline from local disk cache.`,
-        "System (Offline)"
-      );
+  static async fetchOrders(options?: { limit?: number; offset?: number; force?: boolean }): Promise<Order[]> {
+    if (!options?.force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getOrders();
     }
+
+    const limit = options?.limit ?? 1000;
+    const offset = options?.offset ?? 0;
+    const dedupeKey = `fetchOrders_${limit}_${offset}`;
+
+    return deduplicateRequest(dedupeKey, async () => {
+      this.incrementApiCallCount("fetchOrders");
+      debugLog("[ORDER MANAGEMENT FETCH] Loading orders list from Supabase with selective projection...");
+      try {
+        let query = supabase
+          .from("orders")
+          .select("id, customer_name, phone_number, email, order_type, table_number, address, items, subtotal, gst, packaging_charge, discount_amount, applied_coupon, grand_total, payment_status, order_status, created_at, updated_at, payment_method, kot_number, special_instructions, split_settlements, timeline")
+          .order("created_at", { ascending: false });
+
+        if (limit > 0) {
+          query = query.range(offset, offset + limit - 1);
+        }
+
+        const { data, error, status } = await query;
+
+        if (error) {
+          SupabaseCircuitBreaker.checkError(status, error);
+          console.warn("[ORDER MANAGEMENT FETCH] Supabase fetch warning:", error);
+          this.addAuditLog(
+            "Supabase API Warning",
+            `HTTP ${status} - Failed to fetch orders from Supabase REST endpoint: ${error.message} (${error.details}). Check if 'orders' table exists in dashboard. Falling back to local ledger cache.`,
+            "System (Supabase)"
+          );
+          const local = this.getOrders();
+          debugLog(`[ORDER MANAGEMENT FETCH] Fallback loaded ${local.length} orders from local cache. IDs:`, local.map(o => o.id));
+          return local;
+        }
+
+        debugLog(`[ORDER MANAGEMENT FETCH] Successfully retrieved ${(data || []).length} orders from Supabase. IDs:`, (data || []).map((o: any) => o.id));
+
+        // Mark the current timestamp for delta queries
+        this.lastOrdersSyncTimestamp = new Date().toISOString();
+
+        // Translate snake_case keys back to client camelCase with strict ID deduplication
+        const seenIds = new Set<string>();
+        const mapped: Order[] = [];
+        for (const item of (data || [])) {
+          if (!item || !item.id || seenIds.has(item.id)) continue;
+          seenIds.add(item.id);
+          mapped.push(this.mapSupabaseOrderToOrder(item));
+        }
+
+        // Merge mapped with existing local cache (preserving only recent un-synced orders)
+        const existing = this.getOrders();
+        const mergedMap = new Map<string, Order>();
+        for (const o of mapped) mergedMap.set(o.id, o);
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        for (const o of existing) {
+          if (!mergedMap.has(o.id)) {
+            const orderTime = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+            // Only keep un-synced recent local orders, do not revive old stale records from weeks ago
+            if (orderTime > oneDayAgo) {
+              mergedMap.set(o.id, o);
+            }
+          }
+        }
+        const allOrders = Array.from(mergedMap.values());
+
+        // Synchronize local disk cache to match remote Supabase database
+        this.saveOrders(allOrders);
+        return allOrders;
+      } catch (err: any) {
+        SupabaseCircuitBreaker.checkError(undefined, err);
+        console.warn("[ORDER MANAGEMENT FETCH] Supabase transport error:", err);
+        this.addAuditLog(
+          "Supabase Bridge Offline",
+          `Transport link offline: ${err.message || err.toString()}. Reading orders offline from local disk cache.`,
+          "System (Offline)"
+        );
+        return this.getOrders();
+      }
+    });
   }
 
   static getActiveOrderForTable(tableNumber: string): Order | undefined {
@@ -1091,13 +1430,14 @@ export class LocalDB {
 
     try {
       if (items.length === 0) {
-        await supabase.from("orders").update({ order_status: "Cancelled" }).eq("id", orderId);
+        await supabase.from("orders").update({ order_status: "Cancelled", updated_at: new Date().toISOString() }).eq("id", orderId);
       } else {
         await supabase.from("orders").update({
           items: items,
           subtotal: subtotal,
           tax: gst,
-          grand_total: grandTotal
+          grand_total: grandTotal,
+          updated_at: new Date().toISOString()
         }).eq("id", orderId);
       }
     } catch (e) {
@@ -1441,7 +1781,8 @@ export class LocalDB {
       await supabase.from("orders").update({
         order_status: "Served",
         payment_status: "Paid",
-        payment_method: `Merged into #${targetOrder.id}`
+        payment_method: `Merged into #${targetOrder.id}`,
+        updated_at: new Date().toISOString()
       }).eq("id", sourceOrder.id);
       
       // Update KOT table numbers in Supabase
@@ -1480,8 +1821,8 @@ export class LocalDB {
     console.log(`[LocalDB] Merging items into active order ${existingOrder.id} for Table ${existingOrder.tableNumber}`);
     const orders = this.getOrders();
     const idx = orders.findIndex(o => o.id === existingOrder.id);
-    const kotCount = this.getKOTs().length + 1;
-    const kotNumber = `KOT-${String(kotCount).padStart(4, "0")}`;
+    const nextTokenNo = this.getNextTokenNumber();
+    const kotNumber = `KOT-${nextTokenNo}`;
     const addOnCount = (existingOrder.addOnCount || 0) + 1;
 
     const newlyAddedItemsWithTracking = newItems.map((item) => ({
@@ -1638,8 +1979,10 @@ export class LocalDB {
       }
     }
 
-    const newId = `SR-${Date.now().toString().slice(-6)}`;
-    const kotNumber = `KOT-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 90 + 10)}`;
+    const nextBillNo = (order as any).billNo ? parseInt((order as any).billNo, 10) : this.getNextBillNumber();
+    const nextTokenNo = (order as any).tokenNumber ? parseInt((order as any).tokenNumber, 10) : this.getNextTokenNumber();
+    const newId = `SR-${nextBillNo}`;
+    const kotNumber = `KOT-${nextTokenNo}`;
 
     const determinedSource: string = (order as any).source || (
       (order as any).billedBy?.toUpperCase().includes("POS") || (order as any).paymentMethod?.toUpperCase().includes("POS")
@@ -1684,7 +2027,9 @@ export class LocalDB {
       createdAt: new Date().toISOString(),
       timeline,
       addOnCount: 0,
-      kotNumber: kotNumber
+      kotNumber: kotNumber,
+      billNo: String(nextBillNo),
+      tokenNumber: String(nextTokenNo)
     };
 
     // Prepare Supabase Payload
@@ -1708,19 +2053,18 @@ export class LocalDB {
       created_at: fullOrder.createdAt,
       payment_method: fullOrder.paymentMethod || "Cash on Delivery",
       kot_number: kotNumber,
-      special_instructions: `[SOURCE:${determinedSource}]`,
-      restaurant_id: null
+      special_instructions: `[SOURCE:${determinedSource}]`
     };
 
     debugLog("[SUPABASE ORDER INSERT] Submitting payload to Supabase 'orders':", payload);
 
     try {
-      const { data, error, status } = await supabase
+      const { error, status } = await supabase
         .from("orders")
-        .insert(payload)
-        .select();
+        .insert(payload);
 
       if (error) {
+        SupabaseCircuitBreaker.checkError(status, error);
         console.error("[SUPABASE ORDER INSERT] FAILED with status " + status + ":", error);
         
         // If client is online and Supabase returned a real error, reject with clear message
@@ -1736,7 +2080,7 @@ export class LocalDB {
           console.warn("[SUPABASE ORDER INSERT] Device is offline. Storing order in local cache for background sync.");
         }
       } else {
-        debugLog(`[SUPABASE ORDER INSERT] SUCCESS! Order ${newId} inserted into Supabase:`, data);
+        debugLog(`[SUPABASE ORDER INSERT] SUCCESS! Order ${newId} inserted into Supabase.`);
         this.addAuditLog(
           "Supabase Sync Success",
           `Order reference ${newId} with total ₹${fullOrder.grandTotal} stored inside cloud database successfully.`,
@@ -2023,27 +2367,24 @@ export class LocalDB {
   static async detectSupportedColumns(): Promise<string[]> {
     if (this.supportedColumns.length > 0) return this.supportedColumns;
     
-    const candidateColumns = [
-      "id", "name", "item_name", "price", "category", "description", 
-      "is_veg", "best_seller", "chef_special", "special", "is_bestseller", "is_chef_special", "image", "image_url", 
-      "spiciness", "rating", "rating_count",
-      "gst_percent", "gst_percentage", "gst", "hsn_code", "hsn", "available", "is_available"
+    // Canonical WebRajya POS menu_items schema columns
+    const canonicalColumns = [
+      "id", "category_id", "category", "name", "item_name", 
+      "description", "price", "image_url", "image", "is_available", "sort_order", 
+      "is_veg", "is_bestseller", "is_chef_special", "spiciness", "rating", "rating_count",
+      "created_at", "updated_at"
     ];
-    
-    const detected: string[] = [];
-    for (const col of candidateColumns) {
-      try {
-        const { error } = await supabase.from("menu_items").select(col).limit(1);
-        if (!error || error.code !== "42703") {
-          detected.push(col);
-        }
-      } catch (e) {
-        // Fallback to including it if unsure
-        detected.push(col);
+
+    try {
+      const { data, error } = await supabase.from("menu_items").select("*").limit(1);
+      if (!error && data && data.length > 0) {
+        this.supportedColumns = Object.keys(data[0]);
+        return this.supportedColumns;
       }
-    }
-    this.supportedColumns = detected;
-    return detected;
+    } catch (_) {}
+
+    this.supportedColumns = canonicalColumns;
+    return canonicalColumns;
   }
 
   static findMatchingCategoryId(inputCat: string): string {
@@ -2099,7 +2440,7 @@ export class LocalDB {
     return {
       id: rawId,
       itemCode: item.item_code || `ITEM-${rawId.toUpperCase()}`,
-      category: this.findMatchingCategoryId(item.category),
+      category: item.category_id || this.findMatchingCategoryId(item.category),
       name: item.name || item.item_name || "Unnamed Item",
       description: item.description || "",
       price: Number(item.price || 0),
@@ -2206,119 +2547,113 @@ export class LocalDB {
     return this.mapMenuItemForInsert(item, supportedColumns);
   }
 
-  static async fetchMenuItems(): Promise<MenuItem[]> {
-    this.incrementApiCallCount("fetchMenuItems");
-    console.log("[Supabase API Request] Loading menus list with robust fallback mapping...");
-    try {
-      const { data, error, status } = await supabase
-        .from("menu_items")
-        .select("*");
+  static async fetchMenuItems(force = false): Promise<MenuItem[]> {
+    if (!force && menuCatalogCache && Date.now() - menuCatalogCache.timestamp < MENU_CATALOG_CACHE_TTL) {
+      return menuCatalogCache.data;
+    }
 
-      if (error) {
-        console.warn("[Supabase API Error] Menu catalog load failed:", error);
-        this.addAuditLog(
-          "Catalog Sync Error",
-          `HTTP ${status} - Failed to fetch menu catalog from Supabase: ${error.message}. Using offline defaults.`,
-          "System (Supabase)"
-        );
-        return this.getMenuItems();
-      }
-
-      console.log("[Supabase API Response] Successfully fetched menus count:", data?.length);
-
-      if (!data || data.length === 0) {
-        console.log("[Supabase API] Menu table is empty in Supabase.");
-        this.saveMenuItems([]);
-        return [];
-      }
-
-      const mapped: MenuItem[] = (data || []).map((item: any) => this.mapDatabaseMenuItem(item));
-
-      // De-duplicate items by category and name (uniqueness is per category using existing category column)
-      const uniqueMapped: MenuItem[] = [];
-      const seenKeys = new Set<string>();
-      
-      for (const item of mapped) {
-        const key = `${(item.category || "").toLowerCase().trim()}::${(item.name || "").toLowerCase().trim()}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          uniqueMapped.push(item);
-        }
-      }
-
-      // Identify actual duplicates in the database to trigger a background cleanup (uniqueness is per category and name)
-      const duplicateIds: any[] = [];
-      const seenDbKeys = new Set<string>();
-      
-      for (const item of (data || [])) {
-        const mappedItem = this.mapDatabaseMenuItem(item);
-        const key = `${(mappedItem.category || "").toLowerCase().trim()}::${(mappedItem.name || "").toLowerCase().trim()}`;
-        if (seenDbKeys.has(key)) {
-          duplicateIds.push(item.id);
-        } else {
-          seenDbKeys.add(key);
-        }
-      }
-
-      if (duplicateIds.length > 0) {
-        console.log("[Supabase API] Detected duplicate item rows in database. Cleaning up background IDs:", duplicateIds);
-        supabase.from("menu_items").delete().in("id", duplicateIds).then(({ error }) => {
-          if (error) console.error("[Supabase API] Background duplicate cleanup failed:", error);
-          else console.log("[Supabase API] Background duplicate cleanup completed successfully.");
-        });
-      }
-
-      // Sort on frontend to avoid database column order issues
-      uniqueMapped.sort((a, b) => a.name.localeCompare(b.name));
-
-      // Dynamically sync categories derived from actual Supabase menu items
-      const uniqueCategoryNames = Array.from(new Set(uniqueMapped.map(it => it.category).filter(Boolean)));
-      if (uniqueCategoryNames.length > 0) {
-        const existingCats = this.getCategories();
-        const catMap = new Map<string, Category>();
-        for (const c of existingCats) {
-          catMap.set(c.id.toLowerCase().trim(), c);
-          catMap.set(c.name.toLowerCase().trim(), c);
-        }
-        const emojiMap: Record<string, string> = {
-          soup: "🍲",
-          starter: "🥟",
-          "crispy starter": "🥢",
-          "veg noodles": "🍜",
-          "veg rice": "🍚",
-          rolls: "🌯",
-          combo: "🍱",
-          beverages: "🥤",
-          drinks: "🥤",
-          dessert: "🍨",
-          desserts: "🍨",
-          main: "🍛"
-        };
-        for (const cName of uniqueCategoryNames) {
-          const lower = cName.toLowerCase().trim();
-          if (!catMap.has(lower)) {
-            const newCat: Category = {
-              id: cName,
-              name: cName,
-              icon: emojiMap[lower] || "🍽️",
-              description: `Authentic ${cName} specialties`
-            };
-            catMap.set(lower, newCat);
-          }
-        }
-        this.saveCategories(Array.from(new Set(Array.from(catMap.values()))));
-      }
-
-      this.saveMenuItems(uniqueMapped);
-      return uniqueMapped;
-    } catch (err: any) {
-      console.error("[Menu Transport Sync Error]", err);
+    if (!force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getMenuItems();
     }
+
+    return deduplicateRequest("fetchMenuItems", async () => {
+      this.incrementApiCallCount("fetchMenuItems");
+      console.log("[Supabase API Request] Loading menus list with selective projection and caching...");
+      try {
+        const { data, error, status } = await supabase
+          .from("menu_items")
+          .select("id, category_id, category, name, description, price, is_veg, image_url, is_bestseller, is_chef_special, spiciness, is_available, sort_order")
+          .order("sort_order", { ascending: true });
+
+        if (error) {
+          SupabaseCircuitBreaker.checkError(status, error);
+          console.warn("[Supabase API Error] Menu catalog load failed:", error);
+          this.addAuditLog(
+            "Catalog Sync Error",
+            `HTTP ${status} - Failed to fetch menu catalog from Supabase: ${error.message}. Using offline defaults.`,
+            "System (Supabase)"
+          );
+          return this.getMenuItems();
+        }
+
+        console.log("[Supabase API Response] Successfully fetched menus count:", data?.length);
+
+        if (!data || data.length === 0) {
+          console.log("[Supabase API] Menu table is empty in Supabase.");
+          this.saveMenuItems([]);
+          menuCatalogCache = { data: [], timestamp: Date.now() };
+          return [];
+        }
+
+        const mapped: MenuItem[] = (data || []).map((item: any) => this.mapDatabaseMenuItem(item));
+
+        // De-duplicate items by category and name (uniqueness is per category using existing category column)
+        const uniqueMapped: MenuItem[] = [];
+        const seenKeys = new Set<string>();
+        
+        for (const item of mapped) {
+          const key = `${(item.category || "").toLowerCase().trim()}::${(item.name || "").toLowerCase().trim()}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueMapped.push(item);
+          }
+        }
+
+        // Sort on frontend to avoid database column order issues
+        uniqueMapped.sort((a, b) => a.name.localeCompare(b.name));
+
+        // Dynamically sync categories derived from actual Supabase menu items
+        const uniqueCategoryNames = Array.from(new Set(uniqueMapped.map(it => it.category).filter(Boolean)));
+        if (uniqueCategoryNames.length > 0) {
+          const existingCats = this.getCategories();
+          const catMap = new Map<string, Category>();
+          for (const c of existingCats) {
+            catMap.set(c.id.toLowerCase().trim(), c);
+            catMap.set(c.name.toLowerCase().trim(), c);
+          }
+          const emojiMap: Record<string, string> = {
+            soup: "🍲",
+            starter: "🥟",
+            "crispy starter": "🥢",
+            "veg noodles": "🍜",
+            "veg rice": "🍚",
+            rolls: "🌯",
+            combo: "🍱",
+            beverages: "🥤",
+            drinks: "🥤",
+            dessert: "🍨",
+            desserts: "🍨",
+            main: "🍛"
+          };
+          for (const cName of uniqueCategoryNames) {
+            const lower = cName.toLowerCase().trim();
+            if (!catMap.has(lower)) {
+              const newCat: Category = {
+                id: cName,
+                name: cName,
+                icon: emojiMap[lower] || "🍽️",
+                description: `Authentic ${cName} specialties`
+              };
+              catMap.set(lower, newCat);
+            }
+          }
+          this.saveCategories(Array.from(new Set(Array.from(catMap.values()))));
+        }
+
+        this.saveMenuItems(uniqueMapped);
+        menuCatalogCache = { data: uniqueMapped, timestamp: Date.now() };
+        return uniqueMapped;
+      } catch (err: any) {
+        SupabaseCircuitBreaker.checkError(undefined, err);
+        console.error("[Menu Transport Sync Error]", err);
+        return this.getMenuItems();
+      }
+    });
   }
 
   static async apiSaveMenuItems(items: MenuItem[]): Promise<void> {
     this.incrementApiCallCount("apiSaveMenuItems");
+    this.invalidateMenuCache();
     try {
       const supported = await this.detectSupportedColumns();
       console.log("[Supabase API] Supported columns on menu_items table detected:", supported);
@@ -2575,219 +2910,91 @@ export class LocalDB {
   }
 
   static async fetchInventory(): Promise<InventoryItem[]> {
-    this.incrementApiCallCount("fetchInventory");
-    try {
-      const { data, error } = await supabase
-        .from("inventory")
-        .select("*")
-        .order("name", { ascending: true });
-
-      if (error) {
-        console.warn("[Supabase] inventory missing. Falling back to local storage.", error);
-        return this.getInventory();
-      }
-
-      const mapped: InventoryItem[] = (data || []).map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        stock: Number(item.stock || 0),
-        unit: item.unit || "kg",
-        minAlertLevel: Number(item.min_alert_level || 10),
-        category: item.category || "Other",
-        lastRestocked: item.last_restocked || new Date().toISOString().split("T")[0]
-      }));
-
-      this.saveInventory(mapped);
-      return mapped;
-    } catch {
-      return this.getInventory();
-    }
+    // Inventory table was dropped in clean WebRajya POS schema; serve from local ledger
+    return this.getInventory();
   }
 
   static async apiSaveInventory(inventory: InventoryItem[]): Promise<void> {
-    const payload = inventory.map(item => ({
-      id: item.id,
-      name: item.name,
-      stock: Number(item.stock || 0),
-      unit: item.unit,
-      min_alert_level: Number(item.minAlertLevel || 10),
-      category: item.category,
-      last_restocked: item.lastRestocked
-    }));
-
-    try {
-      const { error } = await supabase.from("inventory").upsert(payload);
-      if (error) throw error;
-      this.saveInventory(inventory);
-    } catch (err) {
-      console.error("[Supabase Inventory Sync Failed]", err);
-      this.saveInventory(inventory);
-    }
+    this.saveInventory(inventory);
   }
 
   static async fetchCoupons(): Promise<Coupon[]> {
-    this.incrementApiCallCount("fetchCoupons");
-    try {
-      const { data, error } = await supabase
-        .from("coupons")
-        .select("*")
-        .order("code", { ascending: true });
-
-      if (error) {
-        console.warn("[Supabase] 'coupons' table missing. Using client defaults.", error);
-        return this.getCoupons();
-      }
-
-      const mapped: Coupon[] = (data || []).map((item: any) => ({
-        code: item.code,
-        type: item.type || "percentage",
-        value: Number(item.value || 0),
-        expiryDate: item.expiry_date || "2200-12-31",
-        usageLimit: Number(item.usage_limit || 100),
-        usageCount: Number(item.usage_count || 0),
-        minOrderAmount: item.min_order_amount ? Number(item.min_order_amount) : undefined
-      }));
-
-      this.saveCoupons(mapped);
-      return mapped;
-    } catch {
-      return this.getCoupons();
-    }
+    // Coupons table was dropped in clean WebRajya POS schema; serve from local ledger
+    return this.getCoupons();
   }
 
   static async apiSaveCoupons(coupons: Coupon[]): Promise<void> {
-    const payload = coupons.map(item => ({
-      code: item.code,
-      type: item.type,
-      value: Number(item.value || 0),
-      expiry_date: item.expiryDate,
-      usage_limit: Number(item.usageLimit || 100),
-      usage_count: Number(item.usageCount || 0),
-      min_order_amount: item.minOrderAmount || null
-    }));
-
-    try {
-      const { error } = await supabase.from("coupons").upsert(payload);
-      if (error) throw error;
-      this.saveCoupons(coupons);
-    } catch (err) {
-      console.error("[Supabase Coupons Sync Failed]", err);
-      this.saveCoupons(coupons);
-    }
+    this.saveCoupons(coupons);
   }
 
   static async fetchReviews(): Promise<Review[]> {
-    this.incrementApiCallCount("fetchReviews");
-    try {
-      const { data, error } = await supabase
-        .from("reviews")
-        .select("*")
-        .order("date", { ascending: false });
-
-      if (error) {
-        console.warn("[Supabase] 'reviews' query fallback to localStorage.", error);
-        return this.getReviews();
-      }
-
-      const mapped: Review[] = (data || []).map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        rating: Number(item.rating || 5),
-        date: item.date || new Date().toISOString(),
-        comment: item.comment || "",
-        avatar: item.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100"
-      }));
-
-      this.saveReviews(mapped);
-      return mapped;
-    } catch {
-      return this.getReviews();
-    }
+    // Reviews table was dropped in clean WebRajya POS schema; serve from local ledger
+    return this.getReviews();
   }
 
   static async apiPostReview(review: Review): Promise<void> {
-    const payload = {
-      id: review.id,
-      name: review.name,
-      rating: Number(review.rating || 5),
-      date: review.date,
-      comment: review.comment,
-      avatar: review.avatar
-    };
-
-    try {
-      const { error } = await supabase.from("reviews").insert(payload);
-      if (error) throw error;
-      await this.fetchReviews();
-    } catch (err) {
-      console.error("[Supabase Review POST Failed]", err);
-      const current = this.getReviews();
-      current.unshift(review);
-      this.saveReviews(current);
-    }
+    const current = this.getReviews();
+    current.unshift(review);
+    this.saveReviews(current);
   }
 
   static async apiSaveReviews(reviews: Review[]): Promise<void> {
-    const payload = reviews.map(item => ({
-      id: item.id,
-      name: item.name,
-      rating: Number(item.rating || 5),
-      date: item.date,
-      comment: item.comment,
-      avatar: item.avatar
-    }));
-
-    try {
-      const { error } = await supabase.from("reviews").upsert(payload);
-      if (error) throw error;
-      this.saveReviews(reviews);
-    } catch (err) {
-      console.error("[Supabase Reviews Batch Saving Failed]", err);
-      this.saveReviews(reviews);
-    }
+    this.saveReviews(reviews);
   }
 
-  static async fetchSettings(): Promise<RestaurantSettings> {
-    this.incrementApiCallCount("fetchSettings");
-    try {
-      const { data, error } = await supabase
-        .from("settings")
-        .select("*")
-        .limit(1);
+  static async fetchSettings(force = false): Promise<RestaurantSettings> {
+    if (!force && restaurantSettingsCache && Date.now() - restaurantSettingsCache.timestamp < SETTINGS_CACHE_TTL) {
+      return restaurantSettingsCache.data;
+    }
 
-      if (error || !data || data.length === 0) {
-        console.warn("[Supabase] Settings fetch fallback.", error);
-        return this.getSettings();
-      }
-
-      const item = data[0];
-      const mapped: RestaurantSettings = {
-        ...this.getSettings(),
-        name: item.name || "WebRajya POS",
-        contactNumber: item.contact_number || "",
-        address: item.address || "",
-        businessHours: item.business_hours || "Mon-Sun: 10:00 AM - 10:00 PM",
-        deliveryCharges: Number(item.delivery_charges || 0),
-        gstEnabled: item.gst_enabled === true && (Number(item.gst_rate ?? item.gst_percentage ?? 0) > 0),
-        gstRate: Number(item.gst_rate ?? item.gst_percentage ?? 0),
-        cgstRate: Number(item.cgst_rate ?? (Number(item.gst_rate ?? item.gst_percentage ?? 0) / 2)),
-        sgstRate: Number(item.sgst_rate ?? (Number(item.gst_rate ?? item.gst_percentage ?? 0) / 2)),
-        gstPercentage: Number(item.gst_percentage ?? item.gst_rate ?? 0),
-        gstin: item.gstin || "",
-        facebookUrl: item.facebook_url || "",
-        instagramUrl: item.instagram_url || "",
-        twitterUrl: item.twitter_url || "",
-        googleMapsUrl: item.google_maps_url || ""
-      };
-
-      this.saveSettings(mapped);
-      return mapped;
-    } catch {
+    if (!force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getSettings();
     }
+
+    return deduplicateRequest("fetchSettings", async () => {
+      this.incrementApiCallCount("fetchSettings");
+      try {
+        const { data, error, status } = await supabase
+          .from("settings")
+          .select("id, name, contact_number, address, gstin, fssai_number, gst_percentage, delivery_charges, business_hours")
+          .limit(1);
+
+        if (error || !data || data.length === 0) {
+          SupabaseCircuitBreaker.checkError(status, error);
+          console.warn("[Supabase] Settings fetch fallback.", error);
+          return this.getSettings();
+        }
+
+        const item = data[0];
+        const current = this.getSettings();
+        const mapped: RestaurantSettings = {
+          ...current,
+          name: item.name || "THE XINGS KITCHEN",
+          contactNumber: item.contact_number || current.contactNumber || "",
+          address: item.address || current.address || "",
+          gstin: item.gstin || current.gstin || "",
+          fssaiNumber: item.fssai_number || current.fssaiNumber || "",
+          gstPercentage: Number(item.gst_percentage || 0),
+          gstRate: Number(item.gst_percentage || 0),
+          gstEnabled: Number(item.gst_percentage || 0) > 0,
+          cgstRate: Number(item.gst_percentage || 0) / 2,
+          sgstRate: Number(item.gst_percentage || 0) / 2,
+          deliveryCharges: Number(item.delivery_charges || 0),
+          businessHours: item.business_hours || current.businessHours || "10:00 AM - 10:00 PM DAILY"
+        };
+
+        this.saveSettings(mapped);
+        restaurantSettingsCache = { data: mapped, timestamp: Date.now() };
+        return mapped;
+      } catch (err: any) {
+        SupabaseCircuitBreaker.checkError(undefined, err);
+        return this.getSettings();
+      }
+    });
   }
 
   static async apiSaveSettings(settings: RestaurantSettings): Promise<void> {
+    this.invalidateSettingsCache();
     const isGstActive = settings.gstEnabled === true && (Number(settings.gstRate ?? settings.gstPercentage ?? 0) > 0);
     const payload = {
       id: "singleton-config", // Keep simple single row config
@@ -2809,8 +3016,11 @@ export class LocalDB {
     };
 
     try {
-      const { error } = await supabase.from("settings").upsert(payload);
-      if (error) throw error;
+      const { error, status } = await supabase.from("settings").upsert(payload);
+      if (error) {
+        SupabaseCircuitBreaker.checkError(status, error);
+        throw error;
+      }
       this.saveSettings(settings);
     } catch (err) {
       console.error("[Supabase Settings save failed]", err);
@@ -2823,8 +3033,9 @@ export class LocalDB {
     try {
       const { data, error } = await supabase
         .from("audit_logs")
-        .select("*")
-        .order("timestamp", { ascending: false });
+        .select("id, timestamp, user, action, details, ip_address")
+        .order("timestamp", { ascending: false })
+        .limit(50);
 
       if (error) {
         console.warn("[Supabase] 'audit_logs' query fallback to localStorage.", error);
@@ -2860,10 +3071,13 @@ export class LocalDB {
 
     try {
       const { error } = await supabase.from("audit_logs").insert(payload);
-      if (error) throw error;
-      await this.fetchAuditLogs();
+      if (error) {
+        console.warn("[Supabase Audit Log Insertion Error]", error);
+      }
     } catch (err) {
       console.error("[Supabase Audit Log POST Failed]", err);
+    } finally {
+      // Append directly to local logs without re-fetching all audit logs across the network
       const logs = this.getAuditLogs();
       logs.unshift({
         id: logId,
@@ -2873,7 +3087,8 @@ export class LocalDB {
         details: payload.details,
         ipAddress: payload.ip_address
       });
-      localStorage.setItem("ij_audit_logs", JSON.stringify(logs));
+      localStorage.setItem("ij_audit_logs", JSON.stringify(logs.slice(0, 100)));
+      window.dispatchEvent(new Event("storage"));
     }
   }
 
@@ -2895,43 +3110,60 @@ export class LocalDB {
     window.dispatchEvent(new Event("kots_updated"));
   }
 
-  static async fetchKOTs(): Promise<KOT[]> {
-    console.log("[Supabase API Request] Loading KOT list...");
-    try {
-      const { data, error } = await supabase
-        .from("kots")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.warn("[Supabase] 'kots' query fallback to localStorage.", error);
-        return this.getKOTs();
-      }
-
-      const orders = this.getOrders();
-      const mapped: KOT[] = (data || []).map((item: any) => {
-        const linkedOrder = orders.find(o => o.id === item.order_id);
-        return {
-          id: item.id,
-          orderId: item.order_id,
-          tableNumber: item.table_number || linkedOrder?.tableNumber || "Takeaway",
-          customerName: linkedOrder?.customerName || item.customer_name || "Guest User",
-          orderType: item.order_type || linkedOrder?.orderType || "takeaway",
-          status: item.status || "New Order",
-          specialInstructions: item.special_instructions || "None",
-          createdAt: item.created_at || new Date().toISOString(),
-          preparationTime: Number(item.preparation_time || 15),
-          printed: item.printed !== undefined ? !!item.printed : (Number(item.printed_count || 0) > 0),
-          items: Array.isArray(item.items) ? item.items : (typeof item.items === 'string' ? JSON.parse(item.items) : [])
-        };
-      });
-
-      this.saveKOTs(mapped);
-      return mapped;
-    } catch (err) {
-      console.error("[KOT Transport Sync Error]", err);
+  static async fetchKOTs(options?: { limit?: number; force?: boolean }): Promise<KOT[]> {
+    if (!options?.force && SupabaseCircuitBreaker.shouldBypassNetwork()) {
       return this.getKOTs();
     }
+
+    const limit = options?.limit ?? 1000;
+    return deduplicateRequest(`fetchKOTs_${limit}`, async () => {
+      console.log("[Supabase API Request] Loading KOT list with selective projection...");
+      try {
+        const { data, error, status } = await supabase
+          .from("kots")
+          .select("id, order_id, table_number, customer_name, order_type, status, special_instructions, created_at, preparation_time, printed, items")
+          .order("created_at", { ascending: false })
+          .limit(limit);
+
+        if (error) {
+          SupabaseCircuitBreaker.checkError(status, error);
+          console.warn("[Supabase] 'kots' query fallback to localStorage.", error);
+          return this.getKOTs();
+        }
+
+        const orders = this.getOrders();
+        const mapped: KOT[] = (data || []).map((item: any) => {
+          const linkedOrder = orders.find(o => o.id === item.order_id);
+          return {
+            id: item.id,
+            orderId: item.order_id,
+            tableNumber: item.table_number || linkedOrder?.tableNumber || "Takeaway",
+            customerName: linkedOrder?.customerName || item.customer_name || "Guest User",
+            orderType: item.order_type || linkedOrder?.orderType || "takeaway",
+            status: item.status || "New Order",
+            specialInstructions: item.special_instructions || "None",
+            createdAt: item.created_at || new Date().toISOString(),
+            preparationTime: Number(item.preparation_time || 15),
+            printed: item.printed !== undefined ? !!item.printed : (Number(item.printed_count || 0) > 0),
+            items: Array.isArray(item.items) ? item.items : (typeof item.items === 'string' ? JSON.parse(item.items) : [])
+          };
+        });
+
+        const existing = this.getKOTs();
+        const kMap = new Map<string, KOT>();
+        for (const k of mapped) kMap.set(k.id, k);
+        for (const k of existing) if (!kMap.has(k.id)) kMap.set(k.id, k);
+        const merged = Array.from(kMap.values());
+
+        // Update local storage without dispatching kots_updated event to prevent event ping-pong
+        localStorage.setItem("ij_kots", JSON.stringify(merged));
+        return mapped;
+      } catch (err: any) {
+        SupabaseCircuitBreaker.checkError(undefined, err);
+        console.error("[KOT Transport Sync Error]", err);
+        return this.getKOTs();
+      }
+    });
   }
 
   static async apiAddKOT(kot: KOT): Promise<KOT> {
@@ -3063,11 +3295,11 @@ export class LocalDB {
     debugLog(`[ORDER ITEMS INSERT] Inserting ${payloads.length} item records for order ${orderId}:`, payloads);
 
     try {
-      const { data, error } = await supabase.from("order_items").insert(payloads).select();
+      const { error } = await supabase.from("order_items").insert(payloads);
       if (error) {
         console.warn("[ORDER ITEMS INSERT] Notice (items stored in orders.items JSONB column):", error.message);
       } else {
-        debugLog(`[ORDER ITEMS INSERT] SUCCESS! Stored ${payloads.length} items in relational order_items table:`, data);
+        debugLog(`[ORDER ITEMS INSERT] SUCCESS! Stored ${payloads.length} items in relational order_items table.`);
       }
     } catch (err) {
       console.warn("[ORDER ITEMS INSERT] Relational items table notice:", err);
@@ -3090,33 +3322,8 @@ export class LocalDB {
   }
 
   static async fetchPrinterLogs(): Promise<PrinterEmulatorLog[]> {
-    try {
-      const { data, error } = await supabase
-        .from("printer_emulator_logs")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.warn("[Supabase] 'printer_emulator_logs' table select error:", error);
-        return this.getPrinterLogs();
-      }
-
-      const mapped: PrinterEmulatorLog[] = (data || []).map((item: any) => ({
-        id: item.id,
-        kotId: item.kot_id,
-        kotNumber: item.kot_number,
-        restaurantId: item.restaurant_id,
-        receiptText: item.receipt_text,
-        printStatus: item.print_status,
-        createdAt: item.created_at
-      }));
-
-      this.savePrinterLogs(mapped);
-      return mapped;
-    } catch (err) {
-      console.error("[Supabase fetchPrinterLogs failure]:", err);
-      return this.getPrinterLogs();
-    }
+    // printer_emulator_logs was dropped in clean database setup; serve from local ledger
+    return this.getPrinterLogs();
   }
 
   static async apiAddPrinterLog(log: Omit<PrinterEmulatorLog, "id" | "createdAt">): Promise<PrinterEmulatorLog> {
@@ -3127,25 +3334,6 @@ export class LocalDB {
       id: newId,
       createdAt: new Date().toISOString()
     };
-
-    const payload = {
-      id: fullLog.id,
-      kot_id: fullLog.kotId,
-      kot_number: fullLog.kotNumber,
-      restaurant_id: fullLog.restaurantId,
-      receipt_text: fullLog.receiptText,
-      print_status: fullLog.printStatus,
-      created_at: fullLog.createdAt
-    };
-
-    try {
-      const { error } = await supabase.from("printer_emulator_logs").insert(payload);
-      if (error) {
-        console.error("[Supabase insertion printer_emulator_logs failed]", error);
-      }
-    } catch (err) {
-      console.error("[Supabase connection printer_emulator_logs failed]", err);
-    }
 
     logs.unshift(fullLog);
     this.savePrinterLogs(logs);
@@ -3414,7 +3602,8 @@ export class LocalDB {
         payment_method: order.paymentMethod,
         paid_amount: order.paidAmount,
         remaining_amount: order.remainingAmount,
-        split_settlements: order.splitSettlements || []
+        split_settlements: order.splitSettlements || [],
+        updated_at: new Date().toISOString()
       };
 
       await supabase.from("orders").update(updateOrderPayload).eq("id", order.id);
@@ -3508,7 +3697,8 @@ export class LocalDB {
       await supabase.from("orders").update({
         payment_status: order.paymentStatus,
         paid_amount: order.paidAmount,
-        remaining_amount: order.remainingAmount
+        remaining_amount: order.remainingAmount,
+        updated_at: new Date().toISOString()
       }).eq("id", order.id);
     } catch (e) {
       console.warn("[apiVoidPaymentRecord] Supabase sync fallback:", e);
@@ -3542,7 +3732,10 @@ export class LocalDB {
     this.addAuditLog("Split Bill Configured", `Configured ${splitSettlements.length} split settlements for Order #${order.id} (${splitSettlements[0]?.splitType || 'custom'}).`, user);
 
     try {
-      await supabase.from("orders").update({ split_settlements: splitSettlements }).eq("id", orderId);
+      await supabase.from("orders").update({
+        split_settlements: splitSettlements,
+        updated_at: new Date().toISOString()
+      }).eq("id", orderId);
     } catch (e) {
       console.warn("[apiSaveSplitSettlement] Supabase sync notice:", e);
     }

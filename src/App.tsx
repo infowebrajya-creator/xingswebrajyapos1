@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Utensils, Star, Flame, Sparkles } from "lucide-react";
 import Header from "./components/Header";
@@ -6,8 +6,6 @@ import MenuItemCard from "./components/MenuItemCard";
 import ChefSpecials from "./components/ChefSpecials";
 import Footer from "./components/Footer";
 import CartOverlay from "./components/CartOverlay";
-import AdminLogin from "./components/AdminLogin";
-import AdminDashboard from "./components/AdminDashboard";
 import MobileView from "./components/MobileView";
 import { LocalDB } from "./lib/db";
 import { PrintQueueManager } from "./lib/printQueueManager";
@@ -15,6 +13,9 @@ import { JSPrintManagerService } from "./lib/jsprintmanagerService";
 import { CartItem, MenuItem, Category } from "./types";
 import { parseCurrentRoute, navigateTo, getScannedTableNumber } from "./lib/router";
 import { PWAInstallBanner } from "./components/PWAInstallModal";
+
+const AdminLogin = lazy(() => import("./components/AdminLogin"));
+const AdminDashboard = lazy(() => import("./components/AdminDashboard"));
 
 export default function App() {
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -66,8 +67,12 @@ export default function App() {
     // Dynamic backend catalog sync on mount
     const loadRealData = async () => {
       try {
-        const items = await LocalDB.fetchMenuItems();
-        setMenuList(items);
+        const [itemsResult] = await Promise.allSettled([
+          LocalDB.fetchMenuItems(),
+          LocalDB.fetchCategories(),
+          LocalDB.fetchSettings()
+        ]);
+        if (itemsResult.status === "fulfilled") setMenuList(itemsResult.value);
       } catch (err) {
         // Fallback
       }
@@ -268,19 +273,27 @@ export default function App() {
 
   // If view is administrative
   if (view === "admin") {
-    if (adminToken) {
-      return (
-        <>
-          <AdminDashboard onLogout={handleAdminLogout} />
-          <PWAInstallBanner />
-        </>
-      );
-    }
     return (
-      <>
-        <AdminLogin onLoginSuccess={handleAdminLoginSuccess} />
-        <PWAInstallBanner />
-      </>
+      <Suspense
+        fallback={
+          <div className="min-h-screen min-h-dvh bg-stone-950 flex flex-col items-center justify-center text-stone-200">
+            <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin mb-4" />
+            <p className="text-sm font-mono tracking-widest text-amber-400 uppercase">Loading WebRajya POS...</p>
+          </div>
+        }
+      >
+        {adminToken ? (
+          <>
+            <AdminDashboard onLogout={handleAdminLogout} />
+            <PWAInstallBanner />
+          </>
+        ) : (
+          <>
+            <AdminLogin onLoginSuccess={handleAdminLoginSuccess} />
+            <PWAInstallBanner />
+          </>
+        )}
+      </Suspense>
     );
   }
 

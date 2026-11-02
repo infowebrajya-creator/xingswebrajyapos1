@@ -13,13 +13,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { LocalDB, Order, Coupon, InventoryItem, AuditLog, RestaurantSettings, RestaurantOutlet, defaultOutlets, defaultTermsAndConditions, isDineInQrOrder } from "../lib/db";
 import { MenuItem, RestaurantTable, KOT, Category } from "../types";
 import { PhysicalThermalPrinter, getWRPrinterSettings } from "../lib/printerService";
-import KitchenDashboard from "./KitchenDashboard";
-import LiveKotMonitor from "./LiveKotMonitor";
-import SupabaseDiagnostics from "../pages/admin/SupabaseDiagnostics";
-import BulkMenuImporter from "./BulkMenuImporter";
 import PosBillingPortal from "./PosBillingPortal";
-import PrintersConfigTab from "./PrintersConfigTab";
-import ReportsDashboard from "./ReportsDashboard";
 import TransferTableModal from "./TransferTableModal";
 import { SplitBillModal } from "./SplitBillModal";
 import { CancelOrderModal } from "./CancelOrderModal";
@@ -32,6 +26,12 @@ import { RBACService } from "../lib/rbac";
 import { StaffMember } from "../types";
 import { parseCurrentRoute, buildAdminUrl, navigateTo, AdminTab, ReportsSubTab, MenuSubTab } from "../lib/router";
 import PWAInstallModal, { usePWAInstall } from "./PWAInstallModal";
+
+const KitchenDashboard = React.lazy(() => import("./KitchenDashboard"));
+const SupabaseDiagnostics = React.lazy(() => import("../pages/admin/SupabaseDiagnostics"));
+const BulkMenuImporter = React.lazy(() => import("./BulkMenuImporter"));
+const PrintersConfigTab = React.lazy(() => import("./PrintersConfigTab"));
+const ReportsDashboard = React.lazy(() => import("./ReportsDashboard"));
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -708,7 +708,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     }
   };
 
-  // Load state from server/localStorage on boot and poll periodically
+  // Load state from server/localStorage on boot
   useEffect(() => {
     refreshAllData();
 
@@ -729,7 +729,6 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
           showLiveOrderNotification(order);
         }
       }
-      refreshAllData();
     };
 
     const handleStorageEvent = () => {
@@ -759,93 +758,92 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
   const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
 
-  // Setup initial fetch, Realtime subscription, and fallback polling for cross-session/cross-device synchronicity
+  // Setup Realtime subscription and conservative fallback polling for cross-session/cross-device synchronicity
   useEffect(() => {
-    // 1. Initial direct load on mount (seed deduplication set so historical orders do not alert on page load/refresh)
-    LocalDB.fetchOrders().then((initialOrders) => {
-      initialOrders.forEach(o => notifiedOrderIdsRef.current.add(o.id));
-      setOrders(initialOrders);
-    }).catch(() => {});
-
-    // 2. Supabase Realtime channel stream
-    const unsubscribeRealtime = LocalDB.subscribeToOrders(async (payload) => {
+    // 1. Supabase Realtime channel stream (instant push events via WebSocket)
+    const unsubscribeRealtime = LocalDB.subscribeToOrders((payload) => {
       if ((import.meta as any).env?.DEV) {
-        console.log("[REALTIME EVENT] Triggering instant orders refresh on AdminDashboard:", payload);
+        console.log("[REALTIME EVENT] Instant orders event on AdminDashboard:", payload);
       }
       try {
-        // Fast-path: Check incoming Realtime INSERT event
         if (payload?.eventType === "INSERT" && payload.new) {
           const rawNew = payload.new;
-          if (isDineInQrOrder(rawNew) && !notifiedOrderIdsRef.current.has(rawNew.id)) {
-            const parsedItems = Array.isArray(rawNew.items) ? rawNew.items : (typeof rawNew.items === "string" ? JSON.parse(rawNew.items) : []);
-            const mappedNewOrder: Order = {
-              id: rawNew.id,
-              customerName: rawNew.customer_name || "Dine-In Guest",
-              phoneNumber: rawNew.phone_number || "",
-              email: rawNew.email || "",
-              orderType: (rawNew.order_type || "dine-in") as any,
-              tableNumber: rawNew.table_number || undefined,
-              address: rawNew.address || undefined,
-              items: parsedItems,
-              subtotal: Number(rawNew.subtotal || 0),
-              gst: Number(rawNew.gst || 0),
-              packagingCharge: Number(rawNew.packaging_charge || ((rawNew.order_type || "").toLowerCase() === "takeaway" ? 10 : 0)),
-              discountAmount: Number(rawNew.discount_amount || 0),
-              grandTotal: Number(rawNew.grand_total || 0),
-              paymentStatus: rawNew.payment_status || "Pending",
-              orderStatus: rawNew.order_status || "New Order",
-              createdAt: rawNew.created_at || new Date().toISOString(),
-              paymentMethod: rawNew.payment_method || "Cash on Delivery",
-              source: "QR"
-            };
+          const parsedItems = Array.isArray(rawNew.items) ? rawNew.items : (typeof rawNew.items === "string" ? JSON.parse(rawNew.items) : []);
+          const mappedNewOrder: Order = {
+            id: rawNew.id,
+            customerName: rawNew.customer_name || "Dine-In Guest",
+            phoneNumber: rawNew.phone_number || "",
+            email: rawNew.email || "",
+            orderType: (rawNew.order_type || "dine-in") as any,
+            tableNumber: rawNew.table_number || undefined,
+            address: rawNew.address || undefined,
+            items: parsedItems,
+            subtotal: Number(rawNew.subtotal || 0),
+            gst: Number(rawNew.gst || 0),
+            packagingCharge: Number(rawNew.packaging_charge || ((rawNew.order_type || "").toLowerCase() === "takeaway" ? 10 : 0)),
+            discountAmount: Number(rawNew.discount_amount || 0),
+            grandTotal: Number(rawNew.grand_total || 0),
+            paymentStatus: rawNew.payment_status || "Pending",
+            orderStatus: rawNew.order_status || "New Order",
+            createdAt: rawNew.created_at || new Date().toISOString(),
+            paymentMethod: rawNew.payment_method || "Cash on Delivery",
+            source: "QR"
+          };
+          if (isDineInQrOrder(mappedNewOrder) && !notifiedOrderIdsRef.current.has(mappedNewOrder.id)) {
             showLiveOrderNotification(mappedNewOrder);
+            notifiedOrderIdsRef.current.add(mappedNewOrder.id);
           }
+          setOrders(prev => {
+            const exists = prev.some(o => o.id === mappedNewOrder.id);
+            if (exists) return prev.map(o => o.id === mappedNewOrder.id ? mappedNewOrder : o);
+            return [mappedNewOrder, ...prev];
+          });
+        } else if (payload?.eventType === "UPDATE" && payload.new) {
+          const rawUpd = payload.new;
+          setOrders(prev => prev.map(o => {
+            if (o.id !== rawUpd.id) return o;
+            return {
+              ...o,
+              orderStatus: rawUpd.order_status || o.orderStatus,
+              paymentStatus: rawUpd.payment_status || o.paymentStatus,
+              grandTotal: rawUpd.grand_total !== undefined ? Number(rawUpd.grand_total) : o.grandTotal,
+              tableNumber: rawUpd.table_number !== undefined ? rawUpd.table_number : o.tableNumber
+            };
+          }));
         }
-
-        const freshOrders = await LocalDB.fetchOrders();
-        const currentOrders = ordersRef.current;
-        const existingIds = new Set(currentOrders.map(o => o.id));
-        const newOrders = freshOrders.filter(o => !existingIds.has(o.id));
-        
-        // Filter ONLY genuine Dine-In QR orders that have not been notified yet
-        for (const order of newOrders) {
-          if (isDineInQrOrder(order)) {
-            showLiveOrderNotification(order);
-          }
-        }
-
-        setOrders(freshOrders);
       } catch (err) {
-        console.warn("[REALTIME EVENT] Background refresh warning:", err);
+        console.warn("[REALTIME EVENT] Incremental update handling warning:", err);
       }
     });
 
-    // 3. Fallback polling interval every 2.5 seconds
+    // 2. Adaptive fallback polling interval using Delta-Sync
+    // Paused when tab is backgrounded, restricted, or Realtime WebSocket is healthy
     const pollTimer = setInterval(async () => {
-      try {
-        const freshOrders = await LocalDB.fetchOrders();
-        const currentOrders = ordersRef.current;
-        const existingIds = new Set(currentOrders.map(o => o.id));
-        const newOrders = freshOrders.filter(o => !existingIds.has(o.id));
-        
-        // Filter ONLY genuine Dine-In QR orders that have not been notified yet
-        for (const order of newOrders) {
-          if (isDineInQrOrder(order)) {
-            showLiveOrderNotification(order);
-          }
-        }
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (LocalDB.isRestricted()) return;
+      if (LocalDB.isRealtimeHealthy()) return;
 
-        const isDifferent = freshOrders.length !== currentOrders.length ||
-          freshOrders.some((fo) => {
-            const match = currentOrders.find(co => co.id === fo.id);
-            return !match || match.orderStatus !== fo.orderStatus || match.grandTotal !== fo.grandTotal;
-          });
-        
-        if (isDifferent) {
-          setOrders(freshOrders);
+      try {
+        const delta = await LocalDB.fetchOrdersDelta();
+        if (delta.changedCount > 0) {
+          setOrders(delta.orders);
         }
       } catch (_) {}
-    }, 2500);
+    }, 60000);
+
+    // 3. Tab focus & visibility delta-catchup: instant sync when tab is reopened with zero background polling
+    const handleVisibilityOrFocus = async () => {
+      if (typeof document !== "undefined" && !document.hidden && !LocalDB.isRestricted()) {
+        try {
+          const delta = await LocalDB.fetchOrdersDelta();
+          if (delta.changedCount > 0) {
+            setOrders(delta.orders);
+          }
+        } catch (_) {}
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
 
     // 4. Instant synchronization for local storage and custom table events
     const handleStorageAndTableSync = () => {
@@ -859,6 +857,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     return () => {
       unsubscribeRealtime();
       clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
       window.removeEventListener("storage", handleStorageAndTableSync);
       window.removeEventListener("tables_updated", handleStorageAndTableSync);
       window.removeEventListener("table_transferred", handleStorageAndTableSync);
@@ -909,14 +909,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
       setAuditLogs(LocalDB.getAuditLogs());
     }
     try {
-      setTables(LocalDB.getTables());
+      const tbls = await LocalDB.fetchTables();
+      setTables(tbls);
     } catch (_) {
-      // safe fallback
+      setTables(LocalDB.getTables());
     }
     try {
-      setCategoriesList(LocalDB.getCategories());
+      const cats = await LocalDB.fetchCategories();
+      setCategoriesList(cats);
     } catch (_) {
-      // safe fallback
+      setCategoriesList(LocalDB.getCategories());
     }
   };
 
@@ -2156,22 +2158,24 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             {/* TAB CONTENT: SALES & PERFORMANCE REPORTS */}
             {activeTab === "reports" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-                <ReportsDashboard
-                  orders={orders}
-                  menuItems={menuItems}
-                  categories={categoriesList}
-                  settings={settings}
-                  onUpdateSettings={(updated) => {
-                    setSettings(updated);
-                    LocalDB.saveSettings(updated);
-                  }}
-                  initialSubTab={reportsSubTab}
-                  onSubTabChange={handleReportsSubTabChange}
-                  onRefreshOrders={async () => {
-                    const fresh = await LocalDB.fetchOrders();
-                    setOrders(fresh);
-                  }}
-                />
+                <React.Suspense fallback={<div className="p-8 text-center text-stone-400">Loading Reports Engine...</div>}>
+                  <ReportsDashboard
+                    orders={orders}
+                    menuItems={menuItems}
+                    categories={categoriesList}
+                    settings={settings}
+                    onUpdateSettings={(updated) => {
+                      setSettings(updated);
+                      LocalDB.saveSettings(updated);
+                    }}
+                    initialSubTab={reportsSubTab}
+                    onSubTabChange={handleReportsSubTabChange}
+                    onRefreshOrders={async () => {
+                      const fresh = await LocalDB.fetchOrders();
+                      setOrders(fresh);
+                    }}
+                  />
+                </React.Suspense>
               </motion.div>
             )}
 
@@ -3664,7 +3668,9 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             {/* TAB CONTENT: KITCHEN DISPLAY */}
             {activeTab === "kitchen" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 w-full">
-                <KitchenDashboard />
+                <React.Suspense fallback={<div className="p-8 text-center text-stone-400">Loading Kitchen Display...</div>}>
+                  <KitchenDashboard />
+                </React.Suspense>
               </motion.div>
             )}
 
@@ -4179,7 +4185,9 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
             {/* TAB CONTENT: PRINTERS & SPOOLS MANAGER */}
             {activeTab === "printers" && (
-              <PrintersConfigTab />
+              <React.Suspense fallback={<div className="p-8 text-center text-stone-400">Loading Printers Config...</div>}>
+                <PrintersConfigTab />
+              </React.Suspense>
             )}
 
 
@@ -4187,7 +4195,9 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             {/* TAB CONTENT: SUPABASE DIAGNOSTICS */}
             {activeTab === "supabase" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 w-full">
-                <SupabaseDiagnostics />
+                <React.Suspense fallback={<div className="p-8 text-center text-stone-400">Loading Diagnostics...</div>}>
+                  <SupabaseDiagnostics />
+                </React.Suspense>
               </motion.div>
             )}
 
@@ -4512,13 +4522,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 }
               }
 
-              // Sync details
-              const updatedOrders = await LocalDB.fetchOrders();
-              const match = updatedOrders.find(o => o.id === showBillPrint.id);
+              // Sync details locally
+              const localOrders = LocalDB.getOrders();
+              const match = localOrders.find(o => o.id === showBillPrint.id);
               if (match) {
                 setShowBillPrint(match);
               }
-              await refreshAllData();
+              setOrders(localOrders);
             } catch (err: any) {
               setPrintError(err.message || "An unexpected print spooling error occurred.");
             } finally {
@@ -5351,18 +5361,20 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
       {/* BULK IMPORTER MODAL */}
       <AnimatePresence>
         {showBulkImportModal && (
-          <BulkMenuImporter 
-            onClose={() => setShowBulkImportModal(false)} 
-            onImportSuccess={async () => {
-              try {
-                const items = await LocalDB.fetchMenuItems();
-                setMenuItems(items);
-              } catch (_) {
-                setMenuItems(LocalDB.getMenuItems());
-              }
-              setShowBulkImportModal(false);
-            }} 
-          />
+          <React.Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"><div className="bg-stone-900 text-stone-200 p-6 rounded-xl">Loading Importer...</div></div>}>
+            <BulkMenuImporter 
+              onClose={() => setShowBulkImportModal(false)} 
+              onImportSuccess={async () => {
+                try {
+                  const items = await LocalDB.fetchMenuItems();
+                  setMenuItems(items);
+                } catch (_) {
+                  setMenuItems(LocalDB.getMenuItems());
+                }
+                setShowBulkImportModal(false);
+              }} 
+            />
+          </React.Suspense>
         )}
       </AnimatePresence>
 

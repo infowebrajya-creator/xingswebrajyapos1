@@ -558,8 +558,8 @@ CREATE TRIGGER trg_audit_settlements
         try {
           const start = performance.now();
           const anyMeta = import.meta as any;
-          const targetUrl = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://jkkwrhywfpbitwvffkxx.supabase.co";
-          const targetKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_D1rREhO08nd1vWNmxyugCg_Fff4X10Y";
+          const targetUrl = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://pjgjtnyszuvmlmuetahn.supabase.co";
+          const targetKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_8oZHutm6Iqf2WSLziAjjuQ_nWO7PHdj";
           const res = await fetch(`${targetUrl}/rest/v1/`, {
             headers: { apikey: targetKey }
           });
@@ -576,7 +576,7 @@ CREATE TRIGGER trg_audit_settlements
         }
       } else if (tid === "sb-jwt") {
         const anyMeta = import.meta as any;
-        const key = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_D1rREhO08nd1vWNmxyugCg_Fff4X10Y";
+        const key = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_8oZHutm6Iqf2WSLziAjjuQ_nWO7PHdj";
         if (key && (key.startsWith("sb_publishable") || key.length > 20)) {
           msg = "JWT token structure matches public standard.";
         } else {
@@ -734,7 +734,7 @@ CREATE TRIGGER trg_audit_settlements
 
   const generateVerificationReportMarkdown = () => {
     const anyMeta = import.meta as any;
-    const currentUrl = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://jkkwrhywfpbitwvffkxx.supabase.co";
+    const currentUrl = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://pjgjtnyszuvmlmuetahn.supabase.co";
     return `# WEBRAJYA POS BASE - PRODUCTION READY VERIFICATION REPORT
 Generated on: ${new Date().toLocaleString()}
 Local Environment: Development / Production Server Ready
@@ -797,8 +797,8 @@ VERIFIED AND APPROVED BY: AI Coding Agent & POS QA Automation Suite
 
     // 1. Direct Reachability check on Rest endpoint
     const anyMeta = import.meta as any;
-    const targetUrl = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://jkkwrhywfpbitwvffkxx.supabase.co";
-    const targetKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_D1rREhO08nd1vWNmxyugCg_Fff4X10Y";
+    const targetUrl = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://pjgjtnyszuvmlmuetahn.supabase.co";
+    const targetKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_8oZHutm6Iqf2WSLziAjjuQ_nWO7PHdj";
     try {
       addLog("network", "Pinging Supabase REST schema boundary...");
       const res = await fetch(`${targetUrl}/rest/v1/`, {
@@ -898,8 +898,8 @@ VERIFIED AND APPROVED BY: AI Coding Agent & POS QA Automation Suite
   }, []);
 
   const anyMeta = import.meta as any;
-  const configuredHost = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://jkkwrhywfpbitwvffkxx.supabase.co";
-  const anonKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_D1rREhO08nd1vWNmxyugCg_Fff4X10Y";
+  const configuredHost = anyMeta.env?.VITE_SUPABASE_URL || anyMeta.env?.NEXT_PUBLIC_SUPABASE_URL || "https://pjgjtnyszuvmlmuetahn.supabase.co";
+  const anonKey = anyMeta.env?.VITE_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || anyMeta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_8oZHutm6Iqf2WSLziAjjuQ_nWO7PHdj";
   const maskedAnonKey = anonKey
     ? `${anonKey.substring(0, 10)}...${anonKey.substring(anonKey.length - 8)}`
     : "NOT SET";

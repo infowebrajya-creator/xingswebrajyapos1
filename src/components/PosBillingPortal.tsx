@@ -1087,18 +1087,22 @@ export default function PosBillingPortal({
           await LocalDB.apiUpdateOrderPrintStatus(finalOrder.id, "bill", "Printed");
 
           if (finalOrder.orderType !== "dine-in") {
+            const cleanBill = finalOrder.billNo || finalOrder.id.replace("SR-", "");
+            const cleanToken = finalOrder.tokenNumber || finalOrder.kotNumber?.replace(/^KOT-?/i, "") || cleanBill;
             const finalKotData = {
-              id: `KOT-${finalOrder.id}`,
-              kotNumber: `KOT-${finalOrder.id}`,
-              kotTitle: "FINAL KOT",
-              orderId: finalOrder.id,
+              id: finalOrder.kotNumber || `KOT-${cleanToken}`,
+              kotNumber: finalOrder.kotNumber || `KOT-${cleanToken}`,
+              tokenNumber: cleanToken,
+              billNo: cleanBill,
+              kotTitle: `TOKEN #${cleanToken}`,
+              orderId: cleanBill,
               tableNumber: finalOrder.tableNumber,
               orderType: finalOrder.orderType,
               customerName: finalOrder.customerName,
               phoneNumber: finalOrder.phoneNumber,
               createdAt: finalOrder.createdAt,
               items: finalOrder.items,
-              specialInstructions: "FINAL KOT | COMPLETE SESSION ORDER"
+              specialInstructions: `TOKEN #${cleanToken} | BILL #${cleanBill}`
             };
             setTimeout(() => {
               PhysicalThermalPrinter.printSystemFallback(finalKotData as any, "80mm");
@@ -1108,7 +1112,7 @@ export default function PosBillingPortal({
 
           setPrintNotice({
             type: "success",
-            message: `Bill #${finalOrder.id} printed silently to thermal printer.`,
+            message: `Bill #${finalOrder.billNo || finalOrder.id.replace("SR-", "")} (Token #${finalOrder.tokenNumber || finalOrder.id.replace("SR-", "")}) printed silently to thermal printer.`,
             order: finalOrder
           });
           setTimeout(() => setPrintNotice(null), 4000);
@@ -1132,11 +1136,15 @@ export default function PosBillingPortal({
 
           // 2. Print FINAL KOT (Only for Takeaway / Delivery orders; for Dine-In, KOTs are sent separately)
           if (finalOrder.orderType !== "dine-in") {
+            const cleanBill = finalOrder.billNo || finalOrder.id.replace("SR-", "");
+            const cleanToken = finalOrder.tokenNumber || finalOrder.kotNumber?.replace(/^KOT-?/i, "") || cleanBill;
             const finalKotData = {
-              id: `KOT-${finalOrder.id}`,
-              kotNumber: `KOT-${finalOrder.id}`,
-              kotTitle: "FINAL KOT",
-              orderId: finalOrder.id,
+              id: finalOrder.kotNumber || `KOT-${cleanToken}`,
+              kotNumber: finalOrder.kotNumber || `KOT-${cleanToken}`,
+              tokenNumber: cleanToken,
+              billNo: cleanBill,
+              kotTitle: `TOKEN #${cleanToken}`,
+              orderId: cleanBill,
               tableNumber: finalOrder.tableNumber,
               orderType: finalOrder.orderType,
               customerName: finalOrder.customerName,
@@ -1148,7 +1156,7 @@ export default function PosBillingPortal({
                 quantity: i.quantity,
                 customization: i.customization || ""
               })),
-              specialInstructions: "FINAL KOT | COMPLETE SESSION ORDER"
+              specialInstructions: `TOKEN #${cleanToken} | BILL #${cleanBill}`
             };
             await JSPrintManagerService.printKOT(finalKotData);
             await LocalDB.apiUpdateOrderPrintStatus(finalOrder.id, "kot", "Printed");
@@ -1159,7 +1167,7 @@ export default function PosBillingPortal({
 
           setPrintNotice({
             type: "success",
-            message: `Bill #${finalOrder.id} printed successfully & recorded to Sales.`,
+            message: `Bill #${finalOrder.billNo || finalOrder.id.replace("SR-", "")} (Token #${finalOrder.tokenNumber || finalOrder.id.replace("SR-", "")}) printed successfully & recorded to Sales.`,
             details: `Invoice ₹${finalOrder.grandTotal} recorded in Daily Sales & Dashboard revenue.`,
             order: finalOrder
           });
@@ -1266,19 +1274,22 @@ export default function PosBillingPortal({
 
     try {
       const hasSentBefore = cart.some(item => (item.printedKotQuantity || 0) > 0);
-      const kotCount = (LocalDB.getKOTs()?.length || 0) + 1;
-      const kotNumber = `KOT-${String(kotCount).padStart(4, "0")}`;
+      const tokenNo = LocalDB.getNextTokenNumber();
+      const kotNumber = `KOT-${tokenNo}`;
+      const billNo = activeOrderForSelectedTable?.billNo || activeOrderForSelectedTable?.id?.replace("SR-", "") || String(LocalDB.getNextBillNumber());
       const headerTitle = isReprint
-        ? `KOT (RE-PRINT FULL)`
+        ? `TOKEN #${tokenNo} (RE-PRINT FULL)`
         : hasSentBefore
-          ? `KOT (ADD-ON ORDER)`
-          : `KOT (INITIAL ORDER)`;
+          ? `TOKEN #${tokenNo} (ADD-ON ORDER)`
+          : `TOKEN #${tokenNo} (INITIAL ORDER)`;
 
       const kotData = {
         id: kotNumber,
         kotNumber: kotNumber,
-        kotTitle: isReprint ? "KOT (RE-PRINT)" : "KOT",
-        orderId: selectedTable ? `TBL-${selectedTable}` : `POS-${Date.now().toString().slice(-4)}`,
+        tokenNumber: String(tokenNo),
+        billNo: billNo,
+        kotTitle: isReprint ? `TOKEN #${tokenNo} (RE-PRINT)` : `TOKEN #${tokenNo}`,
+        orderId: billNo,
         tableNumber: selectedTable || undefined,
         orderType: orderType,
         customerName: customerName.trim() || (isParcelTable(selectedTable) ? `Parcel #${selectedTable}` : (orderType === "dine-in" ? `Table #${selectedTable}` : "Takeaway Guest")),
@@ -2269,6 +2280,22 @@ export default function PosBillingPortal({
 
         {/* RIGHT COLUMN: ACTIVE BILLING CART & SETTLEMENT PANEL */}
         <div className="lg:col-span-5 xl:col-span-4 2xl:col-span-4 bg-white border border-stone-200 rounded-2xl shadow-xs overflow-hidden flex flex-col lg:sticky lg:top-2 self-start max-h-[calc(100vh-125px)] transition-all">
+
+          {/* Sequential Bill No & Token No Counter Header */}
+          <div className="px-3 py-2 bg-stone-900 text-white flex items-center justify-between text-xs font-mono font-bold tracking-wider border-b border-stone-800">
+            <div className="flex items-center gap-1.5">
+              <span className="text-amber-400 text-[10px] font-sans uppercase">Bill No:</span>
+              <span className="bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded font-black text-xs border border-amber-400/30">
+                #{activeOrderForSelectedTable?.billNo || activeOrderForSelectedTable?.id?.replace("SR-", "") || LocalDB.getNextBillNumber()}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-emerald-400 text-[10px] font-sans uppercase">Token No:</span>
+              <span className="bg-emerald-400/20 text-emerald-300 px-2 py-0.5 rounded font-black text-xs border border-emerald-400/30">
+                #{activeOrderForSelectedTable?.tokenNumber || activeOrderForSelectedTable?.kotNumber?.replace(/^KOT-?/i, "") || LocalDB.getNextTokenNumber()}
+              </span>
+            </div>
+          </div>
 
           {/* Top Order Type Modern Segmented Control */}
           <div className="p-2.5 bg-stone-50 border-b border-stone-200 flex-shrink-0">
