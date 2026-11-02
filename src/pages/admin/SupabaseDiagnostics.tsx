@@ -67,9 +67,8 @@ export async function checkSupabaseConnection(): Promise<ConnectionStatus> {
     }
 
     // 2. Database check
-    const { error: dbError } = await supabase.from("restaurants").select("count").limit(1).maybeSingle();
-    // PGRST116 (no rows), PGRST100 (successful count), or even 42P01 (relation does not exist) shows database was hit
-    if (!dbError || dbError.code === "PGRST116" || dbError.code === "42P01" || dbError.code === "PGRST100") {
+    const { error: dbError } = await supabase.from("settings").select("id").limit(1).maybeSingle();
+    if (!dbError) {
       status.database = true;
     }
 
@@ -77,6 +76,7 @@ export async function checkSupabaseConnection(): Promise<ConnectionStatus> {
     const channel = supabase.channel("diagnostics_ping");
     if (channel) {
       status.realtime = true;
+      supabase.removeChannel(channel);
     }
 
     status.connected = status.database || status.auth;
@@ -113,11 +113,11 @@ export default function SupabaseDiagnostics() {
     
     { id: "db-crud-settings", name: "Settings (settings) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
     { id: "db-crud-menu", name: "Menu (menu_items) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
-    { id: "db-crud-restaurants", name: "Restaurants (restaurants) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
+    { id: "db-crud-tables", name: "Tables (tables) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
+    { id: "db-crud-categories", name: "Categories (categories) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
     { id: "db-crud-orders", name: "Orders (orders) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
     { id: "db-crud-kots", name: "KOTs (kots) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
-    { id: "db-crud-inventory", name: "Inventory (inventory) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
-    { id: "db-crud-coupons", name: "Coupons (coupons) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
+    { id: "db-crud-audit_logs", name: "Audit Logs (audit_logs) Table CRUD Verification", category: "Database Tables", status: "PENDING" },
     
     { id: "pos-login", name: "Staff Authentication & Login Workflows", category: "Core POS Workflows", status: "PENDING" },
     { id: "pos-calc", name: "GST (5.00%) & Multi-Coupon Discounts Precision Math", category: "Core POS Workflows", status: "PENDING" },
@@ -832,17 +832,18 @@ VERIFIED AND APPROVED BY: AI Coding Agent & POS QA Automation Suite
       addLog("database-error", `Error performing connection diagnostics: ${err.message}`);
     }
 
-    // 3. Complete Audit of each Commission Table
+    // 3. Complete Audit of each POS Table
     const targetTables = [
-      "restaurants",
+      "settings",
       "orders",
-      "commissions",
-      "settlements",
-      "invoices",
-      "commission_audit_logs",
+      "menu_items",
+      "tables",
+      "categories",
+      "kots",
+      "audit_logs",
     ];
 
-    addLog("database", "Validating Commission Engine tables schema...");
+    addLog("database", "Validating WebRajya POS tables schema...");
     const revisedTableStatus: typeof tableStatus = {};
 
     for (const tableName of targetTables) {
