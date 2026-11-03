@@ -322,16 +322,42 @@ export class PrintQueueManager {
     this.processQueue();
   }
 
+  private static recentlySpooledBills = new Map<string, number>();
+
   /**
    * Spools a customer bill for the Billing Counter Printer.
    */
   public static async spoolBill(order: Order, isReprint: boolean = false) {
+    if (!order || !order.id) return;
+
+    // Do not auto-spool if bill was printed directly at POS counter
+    if (!isReprint && (order.source === "POS" || order.billPrintStatus === "Printed")) {
+      console.log(`[PrintQueueManager] Bill for order #${order.id} was already handled at POS counter. Skipping auto-spool.`);
+      return;
+    }
+
+    // Strict deduplication: do not spool the same bill multiple times within 30 seconds
+    const now = Date.now();
+    const lastSpooled = this.recentlySpooledBills.get(order.id);
+    if (!isReprint && lastSpooled && (now - lastSpooled) < 30000) {
+      console.log(`[PrintQueueManager] Bill for order #${order.id} was already spooled recently (${Math.round((now - lastSpooled) / 1000)}s ago). Skipping duplicate.`);
+      return;
+    }
+
     const configs = this.getPrinterConfigs();
     const queue = this.getQueue();
     const logs = this.getLogs();
 
     const printerConfig = configs.find((c) => c.role === "bill");
     if (!printerConfig) return;
+
+    // Check if a bill job for this order is already in queue
+    if (!isReprint && queue.some(j => j.orderId === order.id && j.type === "Bill" && (j.status === "Pending" || j.status === "Printing" || j.status === "Printed"))) {
+      console.log(`[PrintQueueManager] Bill for order #${order.id} is already in the print queue. Skipping duplicate.`);
+      return;
+    }
+
+    this.recentlySpooledBills.set(order.id, now);
 
     // Count reprints
     let reprintCount = 0;
@@ -598,6 +624,12 @@ export class PrintQueueManager {
 
       console.log(`[PrintQueueManager Listener] Order updated: ${order.id}. Status: ${previousStatus} -> ${order.orderStatus}, Payment: ${previousPaymentStatus} -> ${order.paymentStatus}`);
 
+      // Orders originating from POS counter or already printed are handled directly; skip auto-spool
+      if (order.source === "POS" || order.billPrintStatus === "Printed") {
+        console.log(`[PrintQueueManager Listener] Order ${order.id} was handled at POS counter. Skipping auto-spool on update.`);
+        return;
+      }
+
       const autoPrintEnabled = localStorage.getItem("sr_auto_print_enabled") !== "false";
       if (!autoPrintEnabled) {
         console.log("[PrintQueueManager Listener] Auto-printing is disabled. Skipping automatic spooling on update.");
@@ -614,7 +646,8 @@ export class PrintQueueManager {
       if ((order.orderStatus === "Delivered" || order.orderStatus === "Served" || order.orderStatus === "Ready") && previousStatus !== order.orderStatus) {
         const queue = this.getQueue();
         const logs = this.getLogs();
-        const billPrinted = queue.some(j => j.orderId === order.id && j.type === "Bill" && j.status === "Printed") ||
+        const billPrinted = order.billPrintStatus === "Printed" ||
+                            queue.some(j => j.orderId === order.id && j.type === "Bill" && j.status === "Printed") ||
                             logs.some(l => l.orderId === order.id && l.printType === "Bill" && l.status === "Success");
 
         if (!billPrinted) {

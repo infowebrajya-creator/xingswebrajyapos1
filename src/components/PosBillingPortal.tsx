@@ -326,6 +326,7 @@ export default function PosBillingPortal({
   }, [initialTableNumber]);
 
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const finalizingLockRef = useRef(false);
   const [justPrinted, setJustPrinted] = useState(false);
   const [isPrintingKOT, setIsPrintingKOT] = useState(false);
   const [justPrintedKOT, setJustPrintedKOT] = useState(false);
@@ -966,31 +967,29 @@ export default function PosBillingPortal({
 
   // Process and save finalized invoice with direct QZ Tray thermal printing
   const handleFinalizeCheckout = async () => {
-    if (cart.length === 0 || isFinalizing) return;
-
-    // 1. Strict validation per order type
-    if (orderType === "dine-in") {
-      if (!selectedTable) {
-        alert("Table allocation is required for Dine-In orders. Please select a table before finalizing.");
-        return;
-      }
-    } else if (orderType === "delivery") {
-      if (!customerName.trim()) {
-        alert("Customer recipient name is required for delivery orders.");
-        return;
-      }
-      if (!customerPhone.trim() || customerPhone.replace(/\D/g, "").length < 7) {
-        alert("A valid 10-digit mobile contact number is required for delivery dispatch.");
-        return;
-      }
-      if (!customerAddress.trim()) {
-        alert("A complete delivery/shipping address is required for delivery orders.");
-        return;
-      }
-    }
-
+    if (cart.length === 0 || isFinalizing || finalizingLockRef.current) return;
+    finalizingLockRef.current = true;
     setIsFinalizing(true);
     try {
+      if (orderType === "dine-in") {
+        if (!selectedTable) {
+          alert("Table allocation is required for Dine-In orders. Please select a table before finalizing.");
+          return;
+        }
+      } else if (orderType === "delivery") {
+        if (!customerName.trim()) {
+          alert("Customer recipient name is required for delivery orders.");
+          return;
+        }
+        if (!customerPhone.trim() || customerPhone.replace(/\D/g, "").length < 7) {
+          alert("A valid 10-digit mobile contact number is required for delivery dispatch.");
+          return;
+        }
+        if (!customerAddress.trim()) {
+          alert("A complete delivery/shipping address is required for delivery orders.");
+          return;
+        }
+      }
       // Formulate Order Object for LocalDB saving: cleanly consolidate items by name, rate, and customization
       const consolidatedItemsMap = new Map<string, any>();
       for (const item of cart) {
@@ -1259,6 +1258,7 @@ export default function PosBillingPortal({
     } catch (err: any) {
       alert(err.message || "Failed to finalize order.");
     } finally {
+      finalizingLockRef.current = false;
       setIsFinalizing(false);
     }
   };
@@ -3568,6 +3568,7 @@ export default function PosBillingPortal({
                     type="button"
                     disabled={isFinalizing}
                     onClick={async () => {
+                      if (isFinalizing || finalizingLockRef.current) return;
                       setShowBillPreviewModal(false);
                       await handleFinalizeCheckout();
                     }}

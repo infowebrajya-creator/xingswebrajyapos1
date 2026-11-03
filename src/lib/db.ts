@@ -786,27 +786,46 @@ export class LocalDB {
           const kotNumber = `KOT-${nextTokenNo}`;
           const addOnCount = (activeOrder.addOnCount || 0) + 1;
           
-          const newlyAddedItemsWithTracking = order.items.map((item) => ({
+          // Compute delta (newly added items) by comparing current order items with activeOrder items
+          const existingMap = new Map<string, number>();
+          activeOrder.items.forEach(it => {
+            const k = `${it.name.toLowerCase()}:::${Number(it.price || 0)}:::${String(it.customization || "").toLowerCase()}`;
+            existingMap.set(k, (existingMap.get(k) || 0) + Number(it.quantity || 1));
+          });
+
+          const newlyAddedItemsWithTracking: any[] = [];
+          order.items.forEach((item) => {
+            const k = `${item.name.toLowerCase()}:::${Number(item.price || 0)}:::${String(item.customization || "").toLowerCase()}`;
+            const prevQty = existingMap.get(k) || 0;
+            const deltaQty = Math.max(0, Number(item.quantity || 1) - prevQty);
+            if (deltaQty > 0) {
+              newlyAddedItemsWithTracking.push({
+                menuItemId: item.menuItemId,
+                name: item.name,
+                price: item.price,
+                quantity: deltaQty,
+                customization: item.customization || "",
+                addedAt: new Date().toISOString(),
+                addedBy: (order as any).billedBy || "Waiter",
+                kotNumber: kotNumber,
+                sessionNumber: addOnCount + 1
+              });
+            }
+          });
+
+          // Order items represent the current complete cart without appending/duplicating items
+          const combinedItems = order.items.map((item) => ({
             menuItemId: item.menuItemId,
             name: item.name,
             price: item.price,
             quantity: item.quantity,
             customization: item.customization || "",
-            addedAt: new Date().toISOString(),
-            addedBy: (order as any).billedBy || "Waiter",
-            kotNumber: kotNumber,
-            sessionNumber: addOnCount + 1
+            addedAt: (item as any).addedAt || new Date().toISOString(),
+            addedBy: (item as any).addedBy || (order as any).billedBy || "Waiter",
+            kotNumber: (item as any).kotNumber || kotNumber,
+            sessionNumber: (item as any).sessionNumber || 1
           }));
 
-          const existingItemsWithTracking = activeOrder.items.map(item => ({
-            ...item,
-            addedAt: item.addedAt || activeOrder.createdAt,
-            addedBy: item.addedBy || "Guest",
-            kotNumber: item.kotNumber || activeOrder.kotNumber || "KOT-0001",
-            sessionNumber: item.sessionNumber || 1
-          }));
-
-          const combinedItems = [...existingItemsWithTracking, ...newlyAddedItemsWithTracking];
           const subtotal = combinedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
           const settings = this.getSettings();
           const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Math.round(subtotal * (settings.gstRate / 100)) : 0;
@@ -829,11 +848,13 @@ export class LocalDB {
           const timeline = activeOrder.timeline || [
             { event: "Order Created", timestamp: activeOrder.createdAt, details: "Initial order created." }
           ];
-          timeline.push({
-            event: "Additional Items Added",
-            timestamp: new Date().toISOString(),
-            details: `Added ${newlyAddedItemsWithTracking.length} items via ${kotNumber}.`
-          });
+          if (newlyAddedItemsWithTracking.length > 0) {
+            timeline.push({
+              event: "Additional Items Added",
+              timestamp: new Date().toISOString(),
+              details: `Added ${newlyAddedItemsWithTracking.length} items via ${kotNumber}.`
+            });
+          }
 
           const updatedOrder: Order = {
             ...activeOrder,
@@ -843,7 +864,7 @@ export class LocalDB {
             grandTotal,
             discountAmount,
             timeline,
-            addOnCount
+            addOnCount: newlyAddedItemsWithTracking.length > 0 ? addOnCount : (activeOrder.addOnCount || 0)
           };
 
           if (idx !== -1) {
@@ -855,37 +876,38 @@ export class LocalDB {
             this.saveOrders(orders);
           }
 
-          // Add add-on KOT
-          const freshKOT: KOT = {
-            id: kotNumber,
-            orderId: activeOrder.id,
-            tableNumber: activeOrder.tableNumber || "Takeaway",
-            customerName: activeOrder.customerName,
-            orderType: activeOrder.orderType,
-            status: "New Order",
-            specialInstructions: newlyAddedItemsWithTracking.map(i => i.customization).filter(Boolean).join(", ") || "None",
-            createdAt: new Date().toISOString(),
-            preparationTime: 15,
-            items: newlyAddedItemsWithTracking.map(item => ({
-              menuItemId: item.menuItemId,
-              name: item.name,
-              price: item.price,
-              quantity: item.quantity,
-              customization: item.customization
-            })),
-            isAddOn: true
-          };
+          // Add add-on KOT only if there were genuinely new items
+          if (newlyAddedItemsWithTracking.length > 0) {
+            const freshKOT: KOT = {
+              id: kotNumber,
+              orderId: activeOrder.id,
+              tableNumber: activeOrder.tableNumber || "Takeaway",
+              customerName: activeOrder.customerName,
+              orderType: activeOrder.orderType,
+              status: "New Order",
+              specialInstructions: newlyAddedItemsWithTracking.map(i => i.customization).filter(Boolean).join(", ") || "None",
+              createdAt: new Date().toISOString(),
+              preparationTime: 15,
+              items: newlyAddedItemsWithTracking.map(item => ({
+                menuItemId: item.menuItemId,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                customization: item.customization
+              })),
+              isAddOn: true
+            };
 
-          const localKOTs = this.getKOTs();
-          localKOTs.unshift(freshKOT);
-          this.saveKOTs(localKOTs);
+            const localKOTs = this.getKOTs();
+            localKOTs.unshift(freshKOT);
+            this.saveKOTs(localKOTs);
 
-          // Trigger background Supabase sync
-          this.apiSyncOrderTimelineAndItems(activeOrder.id, combinedItems, timeline, addOnCount).catch(e => console.warn(e));
-          this.apiAddOrderItems(activeOrder.id, newlyAddedItemsWithTracking).catch(e => console.warn(e));
-          this.apiAddKOT(freshKOT).catch(e => console.warn(e));
+            // Trigger background Supabase sync
+            this.apiAddOrderItems(activeOrder.id, newlyAddedItemsWithTracking).catch(e => console.warn(e));
+            this.apiAddKOT(freshKOT).catch(e => console.warn(e));
+          }
 
-
+          this.apiSyncOrderTimelineAndItems(activeOrder.id, combinedItems, timeline, updatedOrder.addOnCount || 0).catch(e => console.warn(e));
 
           // Play sound
           try {
@@ -909,11 +931,6 @@ export class LocalDB {
           const event = new CustomEvent("new_order", { detail: updatedOrder });
           window.dispatchEvent(event);
           window.dispatchEvent(new Event("storage"));
-
-          // Fire auto print notification for printers
-          window.dispatchEvent(new CustomEvent("order_updated_auto_print", {
-            detail: { orderId: activeOrder.id, kotId: kotNumber }
-          }));
 
           return updatedOrder;
         }
@@ -2027,6 +2044,98 @@ export class LocalDB {
 
       const activeTableOrder = this.getActiveOrderForTable(order.tableNumber);
       if (activeTableOrder && activeTableOrder.paymentStatus !== "Paid" && activeTableOrder.orderStatus !== "Cancelled") {
+        if ((order as any).source === "POS") {
+          console.log(`[POS ORDER] Finalizing / updating active Table ${order.tableNumber} order #${activeTableOrder.id}`);
+          const orders = this.getOrders();
+          const idx = orders.findIndex(o => o.id === activeTableOrder.id);
+          const nowIso = new Date().toISOString();
+
+          // Update activeTableOrder with finalized values from POS without duplicating items
+          const finalizedOrder: Order = {
+            ...activeTableOrder,
+            customerName: order.customerName || activeTableOrder.customerName,
+            phoneNumber: order.phoneNumber || activeTableOrder.phoneNumber,
+            items: order.items.map(item => ({
+              menuItemId: item.menuItemId,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+              customization: item.customization || "",
+              addedAt: (item as any).addedAt || activeTableOrder.createdAt,
+              addedBy: (item as any).addedBy || (order as any).billedBy || "POS",
+              kotNumber: (item as any).kotNumber || activeTableOrder.kotNumber,
+              sessionNumber: (item as any).sessionNumber || 1
+            })),
+            subtotal: order.subtotal,
+            gst: order.gst,
+            packagingCharge: Number(order.packagingCharge || 0),
+            discountAmount: Number(order.discountAmount || 0),
+            appliedCoupon: order.appliedCoupon,
+            grandTotal: order.grandTotal,
+            paymentStatus: order.paymentStatus || activeTableOrder.paymentStatus,
+            paymentMethod: order.paymentMethod || activeTableOrder.paymentMethod,
+            orderStatus: order.paymentStatus === "Paid" ? "Served" : (order.orderStatus || activeTableOrder.orderStatus),
+            source: "POS",
+            billedBy: (order as any).billedBy || `POS`,
+            billPrintStatus: "Printed",
+            timeline: [
+              ...(activeTableOrder.timeline || []),
+              { event: "POS Finalized", timestamp: nowIso, details: `Bill finalized at counter for ₹${order.grandTotal} (${order.paymentStatus}).` }
+            ]
+          };
+
+          if (idx !== -1) {
+            orders[idx] = finalizedOrder;
+          } else {
+            orders.unshift(finalizedOrder);
+          }
+          this.saveOrders(orders);
+
+          // Auto-record payment ledger entry if finalized as Paid
+          if (finalizedOrder.paymentStatus === "Paid" && finalizedOrder.grandTotal > 0) {
+            const existingPayments = this.getPaymentsForOrder(finalizedOrder.id);
+            if (existingPayments.length === 0) {
+              const activeShift = this.getActiveShift();
+              const autoPayment: PaymentRecord = {
+                id: `PAY-${Date.now()}-0-${Math.floor(Math.random() * 900 + 100)}`,
+                orderId: finalizedOrder.id,
+                shiftId: finalizedOrder.shiftId || activeShift?.id,
+                amount: finalizedOrder.grandTotal,
+                paymentMethod: finalizedOrder.paymentMethod || "Cash",
+                status: "Paid",
+                createdBy: (order as any).billedBy || "POS System",
+                createdAt: nowIso,
+                customerName: finalizedOrder.customerName
+              };
+              const allPayments = this.getPayments();
+              allPayments.push(autoPayment);
+              this.savePayments(allPayments);
+            }
+          }
+
+          // Sync to Supabase in background
+          this.apiSyncOrderTimelineAndItems(finalizedOrder.id, finalizedOrder.items, finalizedOrder.timeline, finalizedOrder.addOnCount || 0).catch(e => console.warn(e));
+          try {
+            await supabase.from("orders").update({
+              items: finalizedOrder.items,
+              subtotal: finalizedOrder.subtotal,
+              gst: finalizedOrder.gst,
+              grand_total: finalizedOrder.grandTotal,
+              payment_status: finalizedOrder.paymentStatus,
+              payment_method: finalizedOrder.paymentMethod,
+              order_status: finalizedOrder.orderStatus,
+              packaging_charge: finalizedOrder.packagingCharge,
+              discount_amount: finalizedOrder.discountAmount,
+              timeline: finalizedOrder.timeline
+            }).eq("id", finalizedOrder.id);
+          } catch (e) {
+            console.warn(e);
+          }
+
+          window.dispatchEvent(new Event("storage"));
+          return finalizedOrder;
+        }
+
         console.log(`[QR ORDER] Auto-merging subsequent QR order into active Table ${order.tableNumber} order #${activeTableOrder.id}`);
         return await this.apiMergeIntoExistingOrder(
           activeTableOrder,
