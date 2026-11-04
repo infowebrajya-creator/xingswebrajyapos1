@@ -502,6 +502,27 @@ export const DEFAULT_DEPLOYED_TABLES: RestaurantTable[] = [
     status: "Available"
   },
   {
+    id: "tbl-07",
+    tableNumber: "07",
+    capacity: 4,
+    seatingArea: "Main Dining Hall",
+    status: "Available"
+  },
+  {
+    id: "tbl-08",
+    tableNumber: "08",
+    capacity: 4,
+    seatingArea: "Main Dining Hall",
+    status: "Available"
+  },
+  {
+    id: "tbl-09",
+    tableNumber: "09",
+    capacity: 6,
+    seatingArea: "Main Dining Hall",
+    status: "Available"
+  },
+  {
     id: "tbl-p01",
     tableNumber: "P1",
     capacity: 1,
@@ -636,6 +657,18 @@ export class LocalDB {
       tables = [...DEFAULT_DEPLOYED_TABLES];
     }
 
+    let changed = false;
+
+    // Ensure 9 standard dining tables (01 to 09) are always present
+    const defaultDining = DEFAULT_DEPLOYED_TABLES.filter(t => !String(t.tableNumber).toUpperCase().startsWith("P"));
+    const missingDining = defaultDining.filter(defT => !tables.some(t => isSameTable(t.tableNumber, defT.tableNumber)));
+    if (missingDining.length > 0) {
+      const parcelTables = tables.filter(t => String(t.tableNumber).toUpperCase().startsWith("P"));
+      const nonParcelTables = tables.filter(t => !String(t.tableNumber).toUpperCase().startsWith("P"));
+      tables = [...nonParcelTables, ...missingDining, ...parcelTables];
+      changed = true;
+    }
+
     // Ensure 3 standard parcel tables are always present after dining tables
     const hasP1 = tables.some(t => isSameTable(t.tableNumber, "P1"));
     const hasP2 = tables.some(t => isSameTable(t.tableNumber, "P2"));
@@ -647,13 +680,17 @@ export class LocalDB {
       if (!hasP2) parcelTablesToAdd.push({ id: "tbl-p02", tableNumber: "P2", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
       if (!hasP3) parcelTablesToAdd.push({ id: "tbl-p03", tableNumber: "P3", capacity: 1, seatingArea: "Parcel / Takeaway", status: "Available" });
       tables = [...tables, ...parcelTablesToAdd];
+      changed = true;
+    }
+
+    if (changed) {
       this.saveTables(tables);
     }
 
     return tables;
   }
 
-  static deployDefaultTables(count: number = 6): RestaurantTable[] {
+  static deployDefaultTables(count: number = 9): RestaurantTable[] {
     const diningToDeploy = DEFAULT_DEPLOYED_TABLES.filter(t => !String(t.tableNumber).toUpperCase().startsWith("P")).slice(0, count);
     const parcelToDeploy = DEFAULT_DEPLOYED_TABLES.filter(t => String(t.tableNumber).toUpperCase().startsWith("P"));
     const tablesToDeploy = [...diningToDeploy, ...parcelToDeploy];
@@ -830,7 +867,7 @@ export class LocalDB {
           const settings = this.getSettings();
           const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Math.round(subtotal * (settings.gstRate / 100)) : 0;
           const isParcel = (activeOrder.orderType || "").toLowerCase() === "takeaway" || String(activeOrder.tableNumber || "").toUpperCase().startsWith("P");
-          const packagingCharge = isParcel ? 10 : Number(activeOrder.packagingCharge || 0);
+          const packagingCharge = isParcel ? 10 : 0;
           
           let discountAmount = activeOrder.discountAmount || 0;
           if (activeOrder.appliedCoupon) {
@@ -963,7 +1000,7 @@ export class LocalDB {
     const subtotal = Number(order.subtotal || 0);
     const discountAmount = Number(order.discountAmount || 0);
     const gst = Number(order.gst || 0);
-    const packagingCharge = isTakeaway ? 10 : Number(order.packagingCharge || 0);
+    const packagingCharge = isTakeaway ? 10 : 0;
     const grandTotal = Number(order.grandTotal ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
 
     const fullOrder: Order = {
@@ -1293,7 +1330,7 @@ export class LocalDB {
     const isTakeaway = (item.order_type || "").toLowerCase() === "takeaway" || String(item.table_number || "").toUpperCase().startsWith("P");
     const subtotal = Number(item.subtotal || 0);
     const discountAmount = Number(item.discount_amount || 0);
-    const packagingCharge = Number(item.packaging_charge ?? (isTakeaway ? 10 : 0));
+    const packagingCharge = isTakeaway ? (Number(item.packaging_charge) > 0 ? Number(item.packaging_charge) : 10) : 0;
     const gst = settings.gstEnabled && Number(settings.gstRate || 0) > 0 ? Number(item.gst || 0) : 0;
     const grandTotal = Number(item.grand_total ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
 
@@ -2068,7 +2105,7 @@ export class LocalDB {
             })),
             subtotal: order.subtotal,
             gst: order.gst,
-            packagingCharge: Number(order.packagingCharge || 0),
+            packagingCharge: ((order.orderType || activeTableOrder.orderType || "").toLowerCase() === "takeaway" || String(order.tableNumber || activeTableOrder.tableNumber || "").toUpperCase().startsWith("P")) ? 10 : 0,
             discountAmount: Number(order.discountAmount || 0),
             appliedCoupon: order.appliedCoupon,
             grandTotal: order.grandTotal,
@@ -2179,7 +2216,7 @@ export class LocalDB {
     const subtotal = Number(order.subtotal || 0);
     const discountAmount = Number(order.discountAmount || 0);
     const gst = Number(order.gst || 0);
-    const packagingCharge = Number(order.packagingCharge ?? (isTakeaway ? 10 : 0));
+    const packagingCharge = isTakeaway ? (Number(order.packagingCharge) > 0 ? Number(order.packagingCharge) : 10) : 0;
     const grandTotal = Number(order.grandTotal ?? Math.max(0, Math.round(subtotal - discountAmount + gst + packagingCharge)));
 
     const fullOrder: Order = {

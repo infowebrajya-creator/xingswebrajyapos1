@@ -288,7 +288,11 @@ export class PhysicalThermalPrinter {
     const subtotalVal = Number(data.subtotal ?? calculatedSubtotal);
     const discountVal = Number(data.discountAmount ?? data.discount ?? 0);
     const gstVal = Number(data.gst ?? data.totalGst ?? 0);
-    const packagingVal = Number(data.packagingCharge || 0);
+    const orderType = String(data.orderType || data.order_type || "").toLowerCase();
+    const tableNum = String(data.tableNumber || data.table_number || "").toUpperCase();
+    const isParcel = orderType === "takeaway" || tableNum.startsWith("P");
+    const isDineIn = orderType === "dine-in" && !tableNum.startsWith("P");
+    const packagingVal = isDineIn ? 0 : (isParcel ? (Number(data.packagingCharge) > 0 ? Number(data.packagingCharge) : 10) : Number(data.packagingCharge || 0));
     const grandTotalVal = Number(data.grandTotal ?? Math.round(subtotalVal - discountVal + packagingVal + gstVal));
 
     if (is80) {
@@ -618,11 +622,15 @@ export class PhysicalThermalPrinter {
     const billNo = cleanBillNo;
     const orderNumOnly = `#${cleanBillNo}`;
     
-    const isTakeaway = (data.orderType || "").toLowerCase() === "takeaway";
+    const orderType = String(data.orderType || data.order_type || "").toLowerCase();
+    const tableNum = String(data.tableNumber || data.table_number || "").toUpperCase();
+    const isParcel = orderType === "takeaway" || tableNum.startsWith("P");
+    const isDineIn = orderType === "dine-in" && !tableNum.startsWith("P");
+    const isTakeaway = isParcel;
     const subtotal = data.subtotal || 0;
     const discountAmount = data.discountAmount || 0;
     const coupon = data.appliedCoupon || "";
-    const packagingCharge = Number(data.packagingCharge || 0);
+    const packagingCharge = isDineIn ? 0 : (isParcel ? (Number(data.packagingCharge) > 0 ? Number(data.packagingCharge) : 10) : Number(data.packagingCharge || 0));
     const gst = data.gst || 0;
     const deliveryCharge = data.orderType === "delivery" ? (settings.deliveryCharges || 0) : 0;
     const grandTotal = Number(data.grandTotal || (subtotal - discountAmount + packagingCharge + gst + deliveryCharge));
@@ -847,66 +855,6 @@ export class PhysicalThermalPrinter {
                 `).join('')}
               </div>
             ` : ""}
-          </div>
-        </div>
-          
-          ${discountAmount > 0 ? `
-            <div style="display: flex; justify-content: space-between; color: ${isDark ? "#34d399" : "#059669"}; font-weight: 800; padding: 2px 0;">
-              <span>Discount ${coupon ? `(${coupon})` : ""}:</span>
-              <span>-₹${discountAmount.toFixed(2)}</span>
-            </div>
-          ` : ""}
-
-          ${packagingCharge > 0 ? `
-            <div style="display: flex; justify-content: space-between; padding: 2px 0;">
-              <span>Packing Charge:</span>
-              <span>₹${packagingCharge.toFixed(2)}</span>
-            </div>
-          ` : ""}
-
-          ${deliveryCharge > 0 ? `
-            <div style="display: flex; justify-content: space-between; padding: 2px 0;">
-              <span>Delivery Charge:</span>
-              <span>₹${deliveryCharge.toFixed(2)}</span>
-            </div>
-          ` : ""}
-
-          ${gst > 0 ? `
-            <div style="display: flex; justify-content: space-between; padding: 1px 0;">
-              <span>SGST (${halfGstPct}%):</span>
-              <span>₹${(gst / 2).toFixed(2)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 1px 0;">
-              <span>CGST (${halfGstPct}%):</span>
-              <span>₹${(gst / 2).toFixed(2)}</span>
-            </div>
-          ` : ""}
-
-          ${Number(roundOff) !== 0 ? `
-            <div style="display: flex; justify-content: space-between; padding: 1px 0;">
-              <span>Round Off:</span>
-              <span>₹${roundOff}</span>
-            </div>
-          ` : ""}
-
-          <!-- Grand Total Box -->
-          <div style="border-top: 2px solid ${textCol}; border-bottom: 2px solid ${textCol}; margin: 5px 0; padding: 5px 0;">
-            <div style="display: flex; justify-content: space-between; font-size: ${finalFontSize * 1.4}px; font-weight: 950;">
-              <span>GRAND TOTAL:</span>
-              <span>₹${finalGrandTotal.toLocaleString()}.00</span>
-            </div>
-          </div>
-
-          ${opts.showAmountInWords ? `
-            <div style="padding: 2px 0; font-size: ${finalFontSize * 0.78}px; color: ${isDark ? "#cbd5e1" : "#1f2937"}; font-style: italic; line-height: 1.2;">
-              <b>In Words:</b> ${PhysicalThermalPrinter.numberToWordsINR(finalGrandTotal)}
-            </div>
-          ` : ""}
-
-          <!-- Payment Info -->
-          <div style="display: flex; justify-content: space-between; font-size: ${finalFontSize * 0.85}px; padding: 3px 0; border-top: 1px dotted ${isDark ? "#444" : "#000000"}; margin-top: 3px;">
-            <span>Payment Mode: <b>${paymentMode}</b></span>
-            <span>Status: <b style="color: ${paymentStatus === 'PAID' ? '#16a34a' : '#ea580c'};">${paymentStatus}</b></span>
           </div>
         </div>
 
@@ -2132,7 +2080,11 @@ export function buildBillESCPOS(data: any, settings: any, printerSettings: WRPri
   const subtotalVal = Number(data.subtotal ?? calculatedSubtotal);
   const discountVal = Number(data.discountAmount ?? data.discount ?? 0);
   const gstVal = Number(data.gst ?? data.totalGst ?? 0);
-  const packagingVal = Number(data.packagingCharge || 0);
+  const orderType = String(data.orderType || data.order_type || "").toLowerCase();
+  const tableNum = String(data.tableNumber || data.table_number || "").toUpperCase();
+  const isParcel = orderType === "takeaway" || tableNum.startsWith("P");
+  const isDineIn = orderType === "dine-in" && !tableNum.startsWith("P");
+  const packagingVal = isDineIn ? 0 : (isParcel ? (Number(data.packagingCharge) > 0 ? Number(data.packagingCharge) : 10) : Number(data.packagingCharge || 0));
   const grandTotalVal = Number(data.grandTotal ?? Math.round(subtotalVal - discountVal + packagingVal + gstVal));
 
   if (width === "80mm") {

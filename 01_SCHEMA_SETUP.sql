@@ -285,6 +285,9 @@ INSERT INTO public.tables (id, table_number, capacity, status, seating_area) VAL
 ('tbl-04', '04', 4, 'Available', 'Main Dining Hall'),
 ('tbl-05', '05', 2, 'Available', 'Main Dining Hall'),
 ('tbl-06', '06', 2, 'Available', 'Main Dining Hall'),
+('tbl-07', '07', 4, 'Available', 'Main Dining Hall'),
+('tbl-08', '08', 4, 'Available', 'Main Dining Hall'),
+('tbl-09', '09', 6, 'Available', 'Main Dining Hall'),
 ('tbl-p01', 'P1', 1, 'Available', 'Parcel / Takeaway'),
 ('tbl-p02', 'P2', 1, 'Available', 'Parcel / Takeaway'),
 ('tbl-p03', 'P3', 1, 'Available', 'Parcel / Takeaway')

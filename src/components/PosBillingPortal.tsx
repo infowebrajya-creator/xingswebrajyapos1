@@ -698,7 +698,7 @@ export default function PosBillingPortal({
       });
 
       const isParcel = (activeOrderForSelectedTable.orderType || "").toLowerCase() === "takeaway" || isParcelTable(selectedTable);
-      const packaging = isParcel && updatedCart.length > 0 ? 10 : (activeOrderForSelectedTable.packagingCharge || 0);
+      const packaging = isParcel && updatedCart.length > 0 ? 10 : 0;
       const newGrand = updatedCart.length === 0 ? 0 : Math.max(0, Math.round(newSub + newGst + packaging - (activeOrderForSelectedTable.discountAmount || 0)));
 
       await LocalDB.apiUpdateOrderItems(
